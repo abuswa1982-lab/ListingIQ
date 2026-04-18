@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ListingIQ — Modonix</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --navy:#1a2744;--navy2:#243258;--gold:#c9a84c;--gold2:#e8c96a;
+  --bg:#f5f4f0;--surface:#fff;--s2:#f0efe9;--s3:#e8e6de;
+  --border:#dddbd3;--border2:#c8c6bc;
+  --text:#1a1916;--muted:#6b6960;--faint:#9e9c93;
+  --ok:#2d6a4f;--ok-bg:#e8f5ee;--ok-b:#a8d5b8;
+  --err:#8b2020;--err-bg:#fdf0f0;--err-b:#f0c0c0;
+  --info:#1a3a7a;--info-bg:#eef4ff;--info-b:#b8d0f8;
+  --r:8px;--rl:12px;
+}
+body{font-family:Georgia,serif;background:var(--bg);color:var(--text);min-height:100vh;}
+header{background:var(--navy);height:56px;padding:0 2rem;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--gold);}
+.logo{font-size:16px;color:#fff;letter-spacing:0.14em;text-transform:uppercase;}
+.logo span{color:var(--gold);}
+.logo small{font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;margin-left:8px;font-family:monospace;}
+.hdr-right{display:flex;align-items:center;gap:10px;}
+.api-lbl{font-size:11px;color:rgba(255,255,255,0.45);font-family:monospace;}
+.api-inp{width:200px;padding:5px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:4px;font-size:12px;font-family:monospace;color:#fff;}
+.api-inp:focus{outline:none;border-color:var(--gold);}
+.api-save{padding:5px 12px;background:var(--gold);color:var(--navy);border:none;border-radius:4px;font-size:11px;font-weight:bold;cursor:pointer;text-transform:uppercase;}
+.api-save:hover{background:var(--gold2);}
+.clear-btn{padding:5px 12px;background:transparent;color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-size:11px;cursor:pointer;font-family:monospace;}
+.clear-btn:hover{background:rgba(255,255,255,0.08);color:#fff;}
+main{max-width:980px;margin:0 auto;padding:1.5rem;}
+.file-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:1.25rem;margin-bottom:1rem;}
+.file-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.upload-zone{flex:1;min-width:200px;border:1.5px dashed var(--border2);border-radius:var(--r);padding:1rem 1.25rem;cursor:pointer;background:var(--s2);transition:all 0.15s;display:flex;align-items:center;gap:10px;}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--gold);background:#fdf8ec;}
+.upload-zone.loaded{border-style:solid;border-color:var(--ok);background:var(--ok-bg);}
+.uz-icon{font-size:20px;color:var(--faint);}
+.upload-zone.loaded .uz-icon{color:var(--ok);}
+.uz-text{font-size:13px;color:var(--muted);}
+.uz-sub{font-size:11px;color:var(--faint);font-family:monospace;margin-top:2px;}
+.uz-fname{font-size:12px;color:var(--ok);font-family:monospace;font-weight:bold;margin-top:2px;}
+.tpl-col{display:flex;flex-direction:column;gap:6px;}
+.tpl-lbl{font-size:11px;color:var(--faint);font-family:monospace;}
+.tpl-row{display:flex;gap:6px;}
+.tpl-btn{padding:5px 12px;border:1px solid var(--navy);border-radius:var(--r);font-size:11px;font-family:monospace;color:var(--navy);background:transparent;cursor:pointer;transition:all 0.15s;}
+.tpl-btn:hover{background:var(--navy);color:#fff;}
+.file-status{font-size:12px;font-family:monospace;color:var(--muted);margin-top:8px;}
+.tabs-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;margin-bottom:1rem;}
+.tab-nav{display:flex;border-bottom:1px solid var(--border);background:var(--s2);}
+.tab-nav button{flex:1;padding:12px 8px;border:none;background:none;font-size:13px;font-family:Georgia,serif;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px;transition:all 0.15s;white-space:nowrap;}
+.tab-nav button:hover{color:var(--text);}
+.tab-nav button.active{color:var(--navy);border-bottom-color:var(--gold);font-weight:bold;background:var(--surface);}
+.tab-nav button .tn{display:inline-block;width:18px;height:18px;border-radius:50%;background:var(--s3);color:var(--faint);font-size:10px;font-family:monospace;line-height:18px;text-align:center;margin-right:5px;}
+.tab-nav button.active .tn{background:var(--gold);color:var(--navy);}
+.tab-body{padding:1.5rem;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-family:monospace;}
+.field select,.field input[type=text]{width:100%;padding:9px 13px;border:1px solid var(--border);border-radius:var(--r);font-size:14px;font-family:Georgia,serif;background:var(--s2);color:var(--text);transition:border-color 0.15s;}
+.field select:focus,.field input:focus{outline:none;border-color:var(--gold);background:#fff;}
+.field select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239e9c93' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;background-color:var(--s2);}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.btn{padding:11px;border:none;border-radius:var(--r);font-size:14px;font-family:Georgia,serif;cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;}
+.btn-navy{background:var(--navy);color:#fff;}
+.btn-navy:hover{background:var(--navy2);}
+.btn-navy:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-stop{background:#8b2020;color:#fff;margin-top:8px;display:none;}
+.btn-stop:hover{background:#a02525;}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.btn-gold:hover{background:var(--gold2);}
+.btn-sm{padding:7px 16px;font-size:13px;font-family:monospace;border:1px solid var(--border2);border-radius:var(--r);background:transparent;color:var(--text);cursor:pointer;transition:all 0.15s;}
+.btn-sm:hover{background:var(--navy);color:#fff;border-color:var(--navy);}
+.spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.msg{display:none;font-size:13px;padding:10px 14px;border-radius:var(--r);margin-bottom:12px;font-family:monospace;line-height:1.5;}
+.msg.error{display:block;background:var(--err-bg);color:var(--err);border:1px solid var(--err-b);}
+.msg.info{display:block;background:var(--info-bg);color:var(--info);border:1px solid var(--info-b);}
+.msg.success{display:block;background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-b);}
+.prog-wrap{display:none;margin:10px 0 4px;}
+.prog-wrap.on{display:block;}
+.prog-track{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+.prog-fill{height:100%;background:var(--gold);border-radius:2px;width:0%;transition:width 0.3s;}
+.prog-lbl{font-size:11px;color:var(--faint);font-family:monospace;margin-top:4px;}
+.res-block{display:none;margin-top:1.25rem;}
+.res-block.on{display:block;}
+.res-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+.res-title{font-size:11px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint);font-family:monospace;}
+.res-meta{font-size:12px;color:var(--muted);font-family:monospace;}
+.exp-row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--rl);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead tr{background:var(--navy);}
+th{padding:9px 13px;text-align:left;font-family:monospace;font-size:11px;font-weight:bold;letter-spacing:0.06em;text-transform:uppercase;color:#fff;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border);}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--s2);}
+td{padding:9px 13px;vertical-align:top;line-height:1.5;}
+.td-cb{width:32px;text-align:center;vertical-align:middle;}
+.td-num{font-family:monospace;font-size:11px;color:var(--faint);white-space:nowrap;}
+.td-pn{font-family:monospace;font-size:12px;color:var(--muted);white-space:nowrap;}
+.td-main{font-family:Georgia,serif;color:var(--text);}
+.td-slug{font-family:monospace;font-size:12px;color:var(--navy);}
+.td-chars{font-family:monospace;font-size:11px;text-align:center;white-space:nowrap;}
+.c-ok{color:var(--ok);}
+.c-warn{color:#c17a00;}
+.c-over{color:var(--err);}
+.cpbtn{font-size:11px;padding:3px 9px;border:1px solid var(--border2);border-radius:var(--r);background:transparent;color:var(--muted);cursor:pointer;font-family:monospace;white-space:nowrap;}
+.cpbtn:hover{background:var(--s2);color:var(--text);}
+.pill{display:inline-block;font-size:10px;font-weight:bold;padding:2px 9px;border-radius:20px;font-family:monospace;text-transform:uppercase;margin-bottom:5px;}
+.p-amz{background:#FAC775;color:#633806;}
+.p-eby{background:#c8d8f8;color:#0c2460;}
+.p-web{background:#c8ead8;color:#0a3d22;}
+.sel-info{font-size:11px;color:var(--faint);font-family:monospace;margin-top:6px;text-align:center;}
+.preview-wrap{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:6px;}
+.preview-label{font-size:11px;font-family:monospace;color:var(--faint);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em;}
+.preview-content ul{padding-left:1.25rem;}
+.preview-content li{margin-bottom:6px;font-size:14px;line-height:1.6;}
+.preview-content table{width:100%;border-collapse:collapse;font-size:13px;}
+.preview-content table th{background:var(--navy);color:#fff;padding:7px 12px;text-align:left;font-family:monospace;font-size:11px;}
+.preview-content table td{padding:7px 12px;border-bottom:1px solid var(--border);}
+.preview-content table tr:last-child td{border-bottom:none;}
+.preview-content table tr:nth-child(even) td{background:var(--s2);}
+.consol-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1rem;}
+.consol-item{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:12px;display:flex;align-items:center;justify-content:space-between;}
+.consol-name{font-size:13px;color:var(--text);}
+.consol-count{font-size:12px;font-family:monospace;color:var(--ok);font-weight:bold;}
+.consol-count.empty{color:var(--faint);}
+@media(max-width:640px){.two-col{grid-template-columns:1fr;}.tab-nav button{font-size:11px;padding:10px 4px;}.tab-nav button .tn{display:none;}.api-inp{width:120px;}header{padding:0 1rem;}.consol-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Listing<span>IQ</span><small>by Modonix</small></div>
+  <div class="hdr-right">
+    <button class="clear-btn" onclick="clearAll()">&#10005; Clear Data</button>
+    <span class="api-lbl">API KEY</span>
+    <input type="password" class="api-inp" id="api-key" placeholder="sk-ant-...">
+    <button class="api-save" onclick="saveKey()">Save</button>
+  </div>
+</header>
+
+<main>
+  <div class="file-card">
+    <div class="file-row">
+      <div class="upload-zone" id="uz" onclick="document.getElementById('fi').click()" ondragover="udrag(event,true)" ondragleave="udrag(event,false)" ondrop="udrop(event)">
+        <div class="uz-icon">&#8679;</div>
+        <div>
+          <div class="uz-text" id="uz-text">Drop Excel or CSV here, or click to browse</div>
+          <div class="uz-sub">.xlsx / .xls / .csv</div>
+          <div class="uz-fname" id="uz-fname"></div>
+        </div>
+      </div>
+      <input type="file" id="fi" accept=".xlsx,.xls,.csv" style="display:none" onchange="fpick(event)">
+      <div class="tpl-col">
+        <div class="tpl-lbl">Download template</div>
+        <div class="tpl-row">
+          <button class="tpl-btn" onclick="dlXLSX()">&#8595; Excel</button>
+          <button class="tpl-btn" onclick="dlCSV()">&#8595; CSV</button>
+        </div>
+      </div>
+    </div>
+    <div class="file-status" id="file-status"></div>
+  </div>
+
+  <div class="tabs-wrap">
+    <div class="tab-nav">
+      <button class="active" onclick="switchTab(0,this)"><span class="tn">1</span>Product Name</button>
+      <button onclick="switchTab(1,this)"><span class="tn">2</span>Highlights</button>
+      <button onclick="switchTab(2,this)"><span class="tn">3</span>Description</button>
+      <button onclick="switchTab(3,this)"><span class="tn">4</span>HTML Table</button>
+      <button onclick="switchTab(4,this)"><span class="tn">5</span>Consolidate</button>
+    </div>
+
+    <!-- TAB 1 -->
+    <div class="tab-panel active" id="tab-0">
+      <div class="tab-body">
+        <div class="two-col">
+          <div class="field">
+            <label>Output channel</label>
+            <select id="t1-channel">
+              <option value="amazon">Amazon</option>
+              <option value="ebay">eBay</option>
+              <option value="website">Website / SEO</option>
+              <option value="all">All three channels</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Brand override <span style="color:var(--faint);font-size:10px;">(optional)</span></label>
+            <input type="text" id="t1-brand" placeholder="e.g. Wright Tool">
+          </div>
+        </div>
+        <div class="msg" id="t1-msg"></div>
+        <div class="prog-wrap" id="t1-prog"><div class="prog-track"><div class="prog-fill" id="t1-pfill"></div></div><div class="prog-lbl" id="t1-plbl"></div></div>
+        <button class="btn btn-navy" id="t1-gen" onclick="runTab1()"><span id="t1-lbl">Generate Product Names</span></button>
+        <button class="btn btn-stop" id="t1-stop" onclick="doStop('t1')">&#9632; Stop</button>
+        <div class="res-block" id="t1-res">
+          <div class="res-hdr"><div class="res-title">Results</div><div class="res-meta" id="t1-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="expCSV('t1')">&#8595; CSV</button>
+            <button class="btn-sm" onclick="expXLSX('t1')">&#8595; Excel</button>
+          </div>
+          <div class="tbl-wrap"><table><thead id="t1-thead"></thead><tbody id="t1-tbody"></tbody></table></div>
+          <div style="margin-top:1rem;">
+            <button class="btn btn-gold" onclick="genSlugs()">Convert Selected to URL Slugs</button>
+            <div class="sel-info" id="t1-sel">0 rows selected</div>
+          </div>
+          <div class="res-block" id="t1-slug-res" style="margin-top:1rem;">
+            <div class="res-hdr"><div class="res-title">URL Slugs</div><div class="res-meta" id="t1-slug-meta"></div></div>
+            <div class="exp-row">
+              <button class="btn-sm" onclick="expSlugCSV()">&#8595; CSV</button>
+              <button class="btn-sm" onclick="expSlugXLSX()">&#8595; Excel</button>
+            </div>
+            <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Title</th><th>URL Slug</th><th></th></tr></thead><tbody id="t1-slug-tbody"></tbody></table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2 -->
+    <div class="tab-panel" id="tab-1">
+      <div class="tab-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product from your loaded file.</p>
+        <div class="msg" id="t2-msg"></div>
+        <div class="prog-wrap" id="t2-prog"><div class="prog-track"><div class="prog-fill" id="t2-pfill"></div></div><div class="prog-lbl" id="t2-plbl"></div></div>
+        <button class="btn btn-navy" id="t2-gen" onclick="runTab2()"><span id="t2-lbl">Generate Highlights</span></button>
+        <button class="btn btn-stop" id="t2-stop" onclick="doStop('t2')">&#9632; Stop</button>
+        <div class="res-block" id="t2-res">
+          <div class="res-hdr"><div class="res-title">Highlights</div><div class="res-meta" id="t2-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="expCSV('t2')">&#8595; CSV</button>
+            <button class="btn-sm" onclick="expXLSX('t2')">&#8595; Excel</button>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Preview</th><th></th></tr></thead><tbody id="t2-tbody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3 -->
+    <div class="tab-panel" id="tab-2">
+      <div class="tab-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 from your file into HTML. Preserves every word exactly as written.</p>
+        <div class="msg" id="t3-msg"></div>
+        <div class="prog-wrap" id="t3-prog"><div class="prog-track"><div class="prog-fill" id="t3-pfill"></div></div><div class="prog-lbl" id="t3-plbl"></div></div>
+        <button class="btn btn-navy" id="t3-gen" onclick="runTab3()"><span id="t3-lbl">Generate Descriptions</span></button>
+        <button class="btn btn-stop" id="t3-stop" onclick="doStop('t3')">&#9632; Stop</button>
+        <div class="res-block" id="t3-res">
+          <div class="res-hdr"><div class="res-title">Descriptions</div><div class="res-meta" id="t3-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="expCSV('t3')">&#8595; CSV</button>
+            <button class="btn-sm" onclick="expXLSX('t3')">&#8595; Excel</button>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Preview</th><th></th></tr></thead><tbody id="t3-tbody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4 -->
+    <div class="tab-panel" id="tab-3">
+      <div class="tab-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds a formatted HTML specs table with live preview.</p>
+        <div class="msg" id="t4-msg"></div>
+        <div class="prog-wrap" id="t4-prog"><div class="prog-track"><div class="prog-fill" id="t4-pfill"></div></div><div class="prog-lbl" id="t4-plbl"></div></div>
+        <button class="btn btn-navy" id="t4-gen" onclick="runTab4()"><span id="t4-lbl">Generate HTML Tables</span></button>
+        <button class="btn btn-stop" id="t4-stop" onclick="doStop('t4')">&#9632; Stop</button>
+        <div class="res-block" id="t4-res">
+          <div class="res-hdr"><div class="res-title">HTML Tables</div><div class="res-meta" id="t4-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="expCSV('t4')">&#8595; CSV</button>
+            <button class="btn-sm" onclick="expXLSX('t4')">&#8595; Excel</button>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Preview</th><th></th></tr></thead><tbody id="t4-tbody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5 -->
+    <div class="tab-panel" id="tab-4">
+      <div class="tab-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file.</p>
+        <div class="consol-grid" id="consol-grid"></div>
+        <div class="msg" id="t5-msg"></div>
+        <button class="btn btn-gold" onclick="runConsolidate()">Export Consolidated Excel</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+var fileData = null;
+var stops = {t1:false,t2:false,t3:false,t4:false};
+var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
+
+var CH = {
+  amazon:{label:'Amazon',pill:'p-amz',max:200,target:185,
+    rule:'Amazon title: MUST start with [Brand] [Part Number]. Then product type, key specs, features, keywords. Target 180-200 characters — under 150 is unacceptable. No special chars (! $ ? _ { }). No word repeated more than twice. Capitalize first letter of each major word.'},
+  ebay:{label:'eBay',pill:'p-eby',max:80,target:78,
+    rule:'eBay title: MUST start with [Brand] [Part Number]. Then product type and key specs. Hard limit 80 characters. Target 75-80. Use every character.'},
+  website:{label:'Website/SEO',pill:'p-web',max:70,target:65,
+    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. Then product type and primary keyword. Natural language. Target 60-70 characters.'}
+};
+
+function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
+function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
+window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();});
+
+function clearAll(){
+  if(!confirm('Clear all loaded data and results?'))return;
+  fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  document.getElementById('uz').classList.remove('loaded');
+  document.getElementById('uz-fname').textContent='';
+  document.getElementById('uz-text').textContent='Drop Excel or CSV here, or click to browse';
+  document.getElementById('file-status').textContent='';
+  ['t1','t2','t3','t4'].forEach(function(t){
+    var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');
+    setMsg(t+'-msg','','');
+  });
+  var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
+  updateConsolGrid();
+}
+
+function udrag(e,on){e.preventDefault();document.getElementById('uz').classList.toggle('drag',on);}
+function udrop(e){e.preventDefault();document.getElementById('uz').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadFile(f);}
+function fpick(e){var f=e.target.files[0];if(f)loadFile(f);}
+
+function loadFile(f){
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var wb=XLSX.read(e.target.result,{type:'array'});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var data=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!data.length){document.getElementById('file-status').textContent='File appears empty.';return;}
+      fileData=data;
+      document.getElementById('uz').classList.add('loaded');
+      document.getElementById('uz-fname').textContent=f.name+' — '+data.length+' row(s)';
+      document.getElementById('uz-text').textContent='File loaded';
+      document.getElementById('file-status').textContent='Columns: '+Object.keys(data[0]).join(', ');
+    }catch(err){document.getElementById('file-status').textContent='Error: '+err.message;}
+  };
+  reader.readAsArrayBuffer(f);
+}
+
+function switchTab(idx,btn){
+  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.tab-nav button').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('tab-'+idx).classList.add('active');
+  btn.classList.add('active');
+  if(idx===4)updateConsolGrid();
+}
+
+function setMsg(id,msg,type){var el=document.getElementById(id);if(!el)return;el.className='msg'+(type?' '+type:'');el.textContent=msg;}
+
+function setProg(t,pct,lbl){
+  document.getElementById(t+'-pfill').style.width=pct+'%';
+  document.getElementById(t+'-plbl').textContent=lbl;
+  document.getElementById(t+'-prog').classList.toggle('on',pct>0&&pct<100);
+}
+
+function getPN(row){return row['Part Number']||row['part number']||row['PartNumber']||row['part_number']||row['SKU']||row['sku']||row['Model']||'';}
+function getBrand(row,ov){return ov||row['Brand']||row['brand']||row['Manufacturer']||row['manufacturer']||row['MFR']||'';}
+
+function doStop(t){
+  stops[t]=true;
+  var btn=document.getElementById(t+'-stop');
+  if(btn){btn.textContent='Stopping...';btn.disabled=true;}
+}
+
+function showStop(t,show){
+  var btn=document.getElementById(t+'-stop');
+  if(!btn)return;
+  btn.style.display=show?'block':'none';
+  btn.disabled=false;
+  btn.innerHTML='&#9632; Stop';
+}
+
+function enforceLimit(title,max){
+  if(!title||title.length<=max)return title;
+  var cut=title.substring(0,max);
+  var ls=cut.lastIndexOf(' ');
+  if(ls>max*0.6)cut=cut.substring(0,ls);
+  return cut.replace(/[\s,;:\-]+$/,'');
+}
+
+function toSlug(str){
+  return String(str).toLowerCase().replace(/[^a-z0-9 ]/g,'-').replace(/ +/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'');
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function validate(){
+  if(!fileData||!fileData.length)return'Please upload a file first.';
+  return null;
+}
+
+async function apiCall(prompt,maxTok){
+  var key=getKey();
+  if(!key)throw new Error('No API key set.');
+  var res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':key,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTok||600,messages:[{role:'user',content:prompt}]})
+  });
+  if(!res.ok){var e=await res.json();throw new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);}
+  var d=await res.json();
+  return d.content.map(function(i){return i.text||'';}).join('').trim();
+}
+
+// TAB 1
+async function runTab1(){
+  var err=validate();if(err){setMsg('t1-msg',err,'error');return;}
+  setMsg('t1-msg','','');
+  var channel=document.getElementById('t1-channel').value;
+  var brand=document.getElementById('t1-brand').value.trim();
+  var btn=document.getElementById('t1-gen');
+  btn.disabled=true;stops.t1=false;showStop('t1',true);
+  results.t1=[];
+  document.getElementById('t1-res').classList.remove('on');
+  var rows=fileData;
+  var chs=channel==='all'?['amazon','ebay','website']:[channel];
+  try{
+    for(var i=0;i<rows.length;i++){
+      if(stops.t1){setMsg('t1-msg','Stopped after '+results.t1.length+' row(s).','info');break;}
+      setProg('t1',Math.round((i/rows.length)*95),'Row '+(i+1)+' of '+rows.length);
+      document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+rows.length;
+      var pn=getPN(rows[i]);
+      var b=getBrand(rows[i],brand);
+      if(channel==='all'){
+        var entry={partNumber:pn,row:rows[i],titles:{}};
+        for(var ci=0;ci<chs.length;ci++){
+          var p='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[chs[ci]].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[chs[ci]].target+' chars (hard max '+CH[chs[ci]].max+').\nRespond with title text ONLY. No quotes. No explanation.';
+          var t=await apiCall(p,300);
+          entry.titles[chs[ci]]=enforceLimit(t,CH[chs[ci]].max);
+        }
+        results.t1.push(entry);
+      }else{
+        var p2='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[channel].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[channel].target+' chars (hard max '+CH[channel].max+').\nRespond with title text ONLY. No quotes. No explanation.';
+        var t2=await apiCall(p2,300);
+        results.t1.push({partNumber:pn,channel:channel,title:enforceLimit(t2,CH[channel].max),row:rows[i]});
+      }
+    }
+    setProg('t1',100,'');setTimeout(function(){setProg('t1',0,'');},400);
+    renderT1();
+  }catch(e){setMsg('t1-msg','Error: '+e.message,'error');setProg('t1',0,'');}
+  btn.disabled=false;document.getElementById('t1-lbl').textContent='Generate Product Names';showStop('t1',false);updateConsolGrid();
+}
+
+function renderT1(){
+  var isAll=results.t1.length&&results.t1[0].titles;
+  var thead=document.getElementById('t1-thead');
+  var tbody=document.getElementById('t1-tbody');
+  if(isAll){
+    thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>Amazon (200)</th><th>eBay (80)</th><th>Website (70)</th></tr>';
+  }else{
+    var ch=results.t1[0]?results.t1[0].channel:'amazon';
+    thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>'+CH[ch].label+' Title</th><th>Chars</th><th></th></tr>';
+  }
+  var rows='';
+  for(var i=0;i<results.t1.length;i++){
+    var r=results.t1[i];
+    rows+='<tr><td class="td-cb"><input type="checkbox" class="t1-chk" data-i="'+i+'" onchange="updSel()" style="cursor:pointer"></td>';
+    rows+='<td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+'</td>';
+    if(isAll){
+      var chs=['amazon','ebay','website'];
+      for(var ci=0;ci<chs.length;ci++){
+        var ch2=chs[ci];var cfg=CH[ch2];
+        var tv=r.titles&&r.titles[ch2]?r.titles[ch2]:'';
+        var len=tv.length;
+        var cls=len>cfg.max?'c-over':len>=cfg.target*0.85?'c-ok':'c-warn';
+        rows+='<td><span class="pill '+cfg.pill+'">'+cfg.label+'</span><br><span class="td-main">'+esc(tv)+'</span><br><span class="td-chars '+cls+'">'+len+'/'+cfg.max+'</span> <button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch2+'" onclick="cp(this)">Copy</button></td>';
+      }
+    }else{
+      var ch3=r.channel;var cfg3=CH[ch3];var tv3=r.title||'';
+      var len3=tv3.length;
+      var cls3=len3>cfg3.max?'c-over':len3>=cfg3.target*0.85?'c-ok':'c-warn';
+      rows+='<td class="td-main">'+esc(tv3)+'</td><td class="td-chars '+cls3+'">'+len3+'/'+cfg3.max+'</td><td><button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch3+'" onclick="cp(this)">Copy</button></td>';
+    }
+    rows+='</tr>';
+  }
+  tbody.innerHTML=rows;
+  document.getElementById('t1-meta').textContent=results.t1.length+' item(s)';
+  document.getElementById('t1-res').classList.add('on');
+  updSel();
+}
+
+function toggleAll(cb){
+  document.querySelectorAll('.t1-chk').forEach(function(c){c.checked=cb.checked;});
+  updSel();
+}
+function updSel(){
+  var n=document.querySelectorAll('.t1-chk:checked').length;
+  var t=document.querySelectorAll('.t1-chk').length;
+  var el=document.getElementById('t1-sel');
+  if(el)el.textContent=n+' of '+t+' rows selected';
+}
+
+function genSlugs(){
+  var checked=document.querySelectorAll('.t1-chk:checked');
+  if(!checked.length){alert('Select at least one row.');return;}
+  results.slugs=[];
+  checked.forEach(function(cb){
+    var idx=parseInt(cb.getAttribute('data-i'));
+    var r=results.t1[idx];
+    var isAll=r.titles!=null;
+    var title=isAll?(r.titles.website||r.titles.amazon||''):(r.title||'');
+    results.slugs.push({index:idx+1,partNumber:r.partNumber||'',title:title,slug:toSlug(title)});
+  });
+  var rows='';
+  for(var i=0;i<results.slugs.length;i++){
+    var s=results.slugs[i];
+    rows+='<tr><td class="td-num">'+s.index+'</td><td class="td-pn">'+esc(s.partNumber)+'</td><td class="td-main">'+esc(s.title)+'</td><td class="td-slug">'+esc(s.slug)+'</td><td><button class="cpbtn" data-src="t1-slug" data-idx="'+i+'" onclick="cp(this)">Copy</button></td></tr>';
+  }
+  document.getElementById('t1-slug-tbody').innerHTML=rows;
+  document.getElementById('t1-slug-meta').textContent=results.slugs.length+' slug(s)';
+  document.getElementById('t1-slug-res').classList.add('on');
+}
+
+// TAB 2
+async function runTab2(){
+  var err=validate();if(err){setMsg('t2-msg',err,'error');return;}
+  setMsg('t2-msg','','');
+  var btn=document.getElementById('t2-gen');
+  btn.disabled=true;stops.t2=false;showStop('t2',true);
+  results.t2=[];document.getElementById('t2-res').classList.remove('on');
+  try{
+    for(var i=0;i<fileData.length;i++){
+      if(stops.t2){setMsg('t2-msg','Stopped after '+results.t2.length+' row(s).','info');break;}
+      setProg('t2',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
+      document.getElementById('t2-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+      var row=fileData[i];var pn=getPN(row);
+      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight — whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
+      var rhtml=await apiCall(prompt,600);
+      rhtml=rhtml.replace(/```html|```/g,'').trim();
+      results.t2.push({partNumber:pn,html:rhtml,row:row});
+    }
+    setProg('t2',100,'');setTimeout(function(){setProg('t2',0,'');},400);
+    renderTab('t2',results.t2);
+  }catch(e){setMsg('t2-msg','Error: '+e.message,'error');setProg('t2',0,'');}
+  btn.disabled=false;document.getElementById('t2-lbl').textContent='Generate Highlights';showStop('t2',false);updateConsolGrid();
+}
+
+// TAB 3
+async function runTab3(){
+  var err=validate();if(err){setMsg('t3-msg',err,'error');return;}
+  setMsg('t3-msg','','');
+  var btn=document.getElementById('t3-gen');
+  btn.disabled=true;stops.t3=false;showStop('t3',true);
+  results.t3=[];document.getElementById('t3-res').classList.remove('on');
+  try{
+    for(var i=0;i<fileData.length;i++){
+      if(stops.t3){setMsg('t3-msg','Stopped after '+results.t3.length+' row(s).','info');break;}
+      setProg('t3',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
+      document.getElementById('t3-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+      var row=fileData[i];var pn=getPN(row);
+      var ai1=row['Additional Info 1']||row['additional info 1']||row['Additional Info']||row['additional info']||'';
+      var ai2=row['Additional Info 2']||row['additional info 2']||'';
+      var ai3=row['Additional Info 3']||row['additional info 3']||'';
+      var rawDesc=[ai1,ai2,ai3].filter(function(s){return s&&s.trim();}).join(' ');
+      if(!rawDesc)rawDesc=row['Key Specs']||row['key specs']||row['specs']||JSON.stringify(row);
+      var prompt='You are an HTML formatter for product listings.\n\nYour ONLY job is to convert the raw description text below into clean HTML.\n\nSTRICT RULES:\n- Preserve EVERY word exactly as written. Do not add, remove, reword, summarize, or rephrase anything.\n- Do not make assumptions. Do not improve the copy. Do not remove marketing language.\n- Convert the existing structure to HTML only:\n  * Paragraphs become <p> tags\n  * Bullet lists become <ul><li> items\n  * Section headers like Features: or Instructions: become <p><strong>Header:</strong></p>\n  * Bold or emphasized words use <strong> tags\n- Output valid HTML only. No preamble, no explanation, no markdown, no extra tags outside the content.\n- The words in your output must be identical to the words in the input.\n\nRAW DESCRIPTION:\n'+rawDesc+'\n\nReturn the HTML-formatted version of this text with zero content changes.';
+      var rhtml=await apiCall(prompt,800);
+      rhtml=rhtml.replace(/```html|```/g,'').trim();
+      results.t3.push({partNumber:pn,html:rhtml,row:row});
+    }
+    setProg('t3',100,'');setTimeout(function(){setProg('t3',0,'');},400);
+    renderTab('t3',results.t3);
+  }catch(e){setMsg('t3-msg','Error: '+e.message,'error');setProg('t3',0,'');}
+  btn.disabled=false;document.getElementById('t3-lbl').textContent='Generate Descriptions';showStop('t3',false);updateConsolGrid();
+}
+
+// TAB 4
+async function runTab4(){
+  var err=validate();if(err){setMsg('t4-msg',err,'error');return;}
+  setMsg('t4-msg','','');
+  var btn=document.getElementById('t4-gen');
+  btn.disabled=true;stops.t4=false;showStop('t4',true);
+  results.t4=[];document.getElementById('t4-res').classList.remove('on');
+  try{
+    for(var i=0;i<fileData.length;i++){
+      if(stops.t4){setMsg('t4-msg','Stopped after '+results.t4.length+' row(s).','info');break;}
+      setProg('t4',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
+      document.getElementById('t4-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+      var row=fileData[i];var pn=getPN(row);
+      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Table format: two columns — Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only — no preamble, no explanation, no markdown, no extra tags\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
+      var rhtml=await apiCall(prompt,800);
+      rhtml=rhtml.replace(/```html|```/g,'').trim();
+      results.t4.push({partNumber:pn,html:rhtml,row:row});
+    }
+    setProg('t4',100,'');setTimeout(function(){setProg('t4',0,'');},400);
+    renderTab('t4',results.t4);
+  }catch(e){setMsg('t4-msg','Error: '+e.message,'error');setProg('t4',0,'');}
+  btn.disabled=false;document.getElementById('t4-lbl').textContent='Generate HTML Tables';showStop('t4',false);updateConsolGrid();
+}
+
+function renderTab(prefix,data){
+  var tbody=document.getElementById(prefix+'-tbody');
+  var rows='';
+  for(var i=0;i<data.length;i++){
+    var r=data[i];
+    rows+='<tr><td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+'</td>';
+    rows+='<td><div class="preview-wrap"><div class="preview-label">Preview</div><div class="preview-content">'+r.html+'</div></div></td>';
+    rows+='<td><button class="cpbtn" data-src="'+prefix+'" data-idx="'+i+'" onclick="cp(this)">Copy HTML</button></td></tr>';
+  }
+  tbody.innerHTML=rows;
+  document.getElementById(prefix+'-meta').textContent=data.length+' item(s)';
+  document.getElementById(prefix+'-res').classList.add('on');
+}
+
+function cp(btn){
+  var idx=parseInt(btn.getAttribute('data-idx'));
+  var src=btn.getAttribute('data-src');
+  var txt='';
+  if(src==='t1-title'){var r=results.t1[idx];var ch=btn.getAttribute('data-ch');txt=r.titles?(r.titles[ch]||''):(r.title||'');}
+  else if(src==='t1-slug'){txt=results.slugs[idx]?results.slugs[idx].slug:'';}
+  else if(src==='t2'){txt=results.t2[idx]?results.t2[idx].html:'';}
+  else if(src==='t3'){txt=results.t3[idx]?results.t3[idx].html:'';}
+  else if(src==='t4'){txt=results.t4[idx]?results.t4[idx].html:'';}
+  navigator.clipboard.writeText(txt).catch(function(){});
+  var orig=btn.textContent;btn.textContent='Copied';
+  setTimeout(function(){btn.textContent=orig;},1500);
+}
+
+function updateConsolGrid(){
+  var items=[{key:'t1',label:'Product Names'},{key:'slugs',label:'URL Slugs'},{key:'t2',label:'Highlights'},{key:'t3',label:'Descriptions'},{key:'t4',label:'HTML Tables'}];
+  var html='';
+  items.forEach(function(item){
+    var count=results[item.key].length;
+    html+='<div class="consol-item"><span class="consol-name">'+item.label+'</span><span class="consol-count'+(count===0?' empty':'')+'">'+( count>0?count+' rows':'Not generated')+'</span></div>';
+  });
+  var el=document.getElementById('consol-grid');if(el)el.innerHTML=html;
+}
+
+function runConsolidate(){
+  var hasAny=results.t1.length||results.t2.length||results.t3.length||results.t4.length;
+  if(!hasAny){setMsg('t5-msg','No data generated yet. Run at least one tab first.','error');return;}
+  var wb=XLSX.utils.book_new();
+  var pnMap={};
+  function addRows(arr,field){arr.forEach(function(r){var pn=r.partNumber||'';if(!pnMap[pn])pnMap[pn]={};if(field==='title'){if(r.titles){if(r.titles.amazon)pnMap[pn].amazon=r.titles.amazon;if(r.titles.ebay)pnMap[pn].ebay=r.titles.ebay;if(r.titles.website)pnMap[pn].website=r.titles.website;}else{pnMap[pn][r.channel||'title']=r.title||'';}}else{pnMap[pn][field]=r.html||r.slug||'';}});}
+  addRows(results.t1,'title');addRows(results.slugs,'slug');addRows(results.t2,'highlights');addRows(results.t3,'description');addRows(results.t4,'html_table');
+  var headers=['Part Number','Amazon Title','eBay Title','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)'];
+  var rows=[headers];
+  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.amazon||'',d.ebay||'',d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'']);});
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:18},{wch:60},{wch:45},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50}];
+  XLSX.utils.book_append_sheet(wb,ws,'All Outputs');
+  if(results.t1.length){var t1r=[['Part Number','Title','Channel','Characters']];results.t1.forEach(function(r){if(r.titles){['amazon','ebay','website'].forEach(function(ch){if(r.titles[ch])t1r.push([r.partNumber||'',r.titles[ch],ch,r.titles[ch].length]);});}else{t1r.push([r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);}});var ws1=XLSX.utils.aoa_to_sheet(t1r);XLSX.utils.book_append_sheet(wb,ws1,'Product Names');}
+  if(results.t2.length){var t2r=[['Part Number','Highlights (HTML)']];results.t2.forEach(function(r){t2r.push([r.partNumber||'',r.html||'']);});var ws2=XLSX.utils.aoa_to_sheet(t2r);ws2['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws2,'Highlights');}
+  if(results.t3.length){var t3r=[['Part Number','Description (HTML)']];results.t3.forEach(function(r){t3r.push([r.partNumber||'',r.html||'']);});var ws3=XLSX.utils.aoa_to_sheet(t3r);ws3['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws3,'Descriptions');}
+  if(results.t4.length){var t4r=[['Part Number','Specs Table (HTML)']];results.t4.forEach(function(r){t4r.push([r.partNumber||'',r.html||'']);});var ws4=XLSX.utils.aoa_to_sheet(t4r);ws4['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws4,'HTML Tables');}
+  if(results.slugs.length){var slr=[['Part Number','Title','URL Slug']];results.slugs.forEach(function(r){slr.push([r.partNumber||'',r.title||'',r.slug||'']);});var wsl=XLSX.utils.aoa_to_sheet(slr);wsl['!cols']=[{wch:18},{wch:50},{wch:55}];XLSX.utils.book_append_sheet(wb,wsl,'URL Slugs');}
+  XLSX.writeFile(wb,'ListingIQ-Export.xlsx');
+  setMsg('t5-msg','Export complete.','success');
+}
+
+function expCSV(prefix){
+  var data=results[prefix];if(!data||!data.length)return;
+  var rows;
+  if(prefix==='t1'){
+    var isAll=data[0].titles!=null;
+    if(isAll){rows=[['#','Part Number','Amazon Title','Amazon Chars','eBay Title','eBay Chars','Website Title','Website Chars']];data.forEach(function(r,i){var a=r.titles.amazon||'',e=r.titles.ebay||'',w=r.titles.website||'';rows.push([i+1,r.partNumber||'',a,a.length,e,e.length,w,w.length]);});}
+    else{rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});}
+  }else{rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});}
+  var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  dl(new Blob([csv],{type:'text/csv'}),prefix+'-output.csv');
+}
+
+function expXLSX(prefix){
+  var data=results[prefix];if(!data||!data.length)return;
+  var rows;
+  if(prefix==='t1'){
+    var isAll=data[0].titles!=null;
+    if(isAll){rows=[['#','Part Number','Amazon Title','Amazon Chars','eBay Title','eBay Chars','Website Title','Website Chars']];data.forEach(function(r,i){var a=r.titles.amazon||'',e=r.titles.ebay||'',w=r.titles.website||'';rows.push([i+1,r.partNumber||'',a,a.length,e,e.length,w,w.length]);});}
+    else{rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});}
+  }else{rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});}
+  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);XLSX.utils.book_append_sheet(wb2,ws,'Output');XLSX.writeFile(wb2,prefix+'-output.xlsx');
+}
+
+function expSlugCSV(){
+  if(!results.slugs.length)return;
+  var rows=[['#','Part Number','Title','URL Slug']];
+  results.slugs.forEach(function(r){rows.push([r.index,r.partNumber||'',r.title||'',r.slug||'']);});
+  var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  dl(new Blob([csv],{type:'text/csv'}),'url-slugs.csv');
+}
+
+function expSlugXLSX(){
+  if(!results.slugs.length)return;
+  var wb2=XLSX.utils.book_new();
+  var rows=[['#','Part Number','Title','URL Slug']];
+  results.slugs.forEach(function(r){rows.push([r.index,r.partNumber||'',r.title||'',r.slug||'']);});
+  var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:6},{wch:18},{wch:50},{wch:55}];
+  XLSX.utils.book_append_sheet(wb2,ws,'URL Slugs');XLSX.writeFile(wb2,'url-slugs.xlsx');
+}
+
+function dl(blob,name){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href);},1000);}
+
+function dlCSV(){
+  var csv=['"Part Number","Brand","Product Type","Key Specs","Additional Info 1","Additional Info 2","Additional Info 3"','"WR-4420-BLK","Wright Tool","Hand Tool","1/2 Drive, 12-Point, Chrome Vanadium","Heavy-duty forged steel construction","Meets ANSI standards for torque and hardness","For use in automotive and industrial applications"','"","","","","","",""','"","","","","","",""','"","","","","","",""'].join('\n');
+  dl(new Blob([csv],{type:'text/csv'}),'ListingIQ-template.csv');
+}
+
+function dlXLSX(){
+  var wb2=XLSX.utils.book_new();
+  var data=[['Part Number','Brand','Product Type','Key Specs','Additional Info 1','Additional Info 2','Additional Info 3'],['WR-4420-BLK','Wright Tool','Hand Tool','1/2 Drive, 12-Point, Chrome Vanadium','Heavy-duty forged steel construction','Meets ANSI standards for torque and hardness','For use in automotive and industrial applications'],['','','','','','',''],['','','','','','',''],['','','','','','','']];
+  var ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:18},{wch:16},{wch:18},{wch:36},{wch:32},{wch:32},{wch:32}];
+  XLSX.utils.book_append_sheet(wb2,ws,'Product Import');
+  var inst=[['Column','Required?','Notes'],['Part Number','Yes','Manufacturer part number or SKU'],['Brand','Yes','Brand or manufacturer name'],['Product Type','Yes','e.g. Hand Tool, Power Tool, PPE'],['Key Specs','Yes','Main technical specs, comma separated'],['Additional Info 1','Yes','Primary feature or material detail'],['Additional Info 2','No','Standards, certifications, compatibility'],['Additional Info 3','No','Applications, use cases, included items'],['','',''],['Additional Info 1+2+3 = description source for Tab 3','',''],['More detail = better outputs across all tabs','','']];
+  var ws2=XLSX.utils.aoa_to_sheet(inst);ws2['!cols']=[{wch:28},{wch:12},{wch:60}];
+  XLSX.utils.book_append_sheet(wb2,ws2,'Instructions');
+  XLSX.writeFile(wb2,'ListingIQ-template.xlsx');
+}
+</script>
+</body>
+</html>
