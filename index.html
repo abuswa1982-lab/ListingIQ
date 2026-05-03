@@ -15,6 +15,7 @@
   --ok:#2d6a4f;--ok-bg:#e8f5ee;--ok-b:#a8d5b8;
   --err:#8b2020;--err-bg:#fdf0f0;--err-b:#f0c0c0;
   --info:#1a3a7a;--info-bg:#eef4ff;--info-b:#b8d0f8;
+  --warn:#7a4a00;--warn-bg:#fdf5e0;--warn-b:#e8c46a;
   --r:8px;--rl:12px;
 }
 body{font-family:Georgia,serif;background:var(--bg);color:var(--text);min-height:100vh;}
@@ -69,6 +70,8 @@ main{max-width:980px;margin:0 auto;padding:1.5rem;}
 .btn-navy:disabled{opacity:0.4;cursor:not-allowed;}
 .btn-stop{background:#8b2020;color:#fff;margin-top:8px;display:none;}
 .btn-stop:hover{background:#a02525;}
+.btn-resume{background:var(--gold);color:var(--navy);font-weight:bold;margin-top:8px;display:none;}
+.btn-resume:hover{background:var(--gold2);}
 .btn-gold{background:var(--gold);color:var(--navy);}
 .btn-gold:hover{background:var(--gold2);}
 .btn-sm{padding:7px 16px;font-size:13px;font-family:monospace;border:1px solid var(--border2);border-radius:var(--r);background:transparent;color:var(--text);cursor:pointer;transition:all 0.15s;}
@@ -79,6 +82,7 @@ main{max-width:980px;margin:0 auto;padding:1.5rem;}
 .msg.error{display:block;background:var(--err-bg);color:var(--err);border:1px solid var(--err-b);}
 .msg.info{display:block;background:var(--info-bg);color:var(--info);border:1px solid var(--info-b);}
 .msg.success{display:block;background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-b);}
+.msg.warn{display:block;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-b);}
 .prog-wrap{display:none;margin:10px 0 4px;}
 .prog-wrap.on{display:block;}
 .prog-track{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
@@ -129,6 +133,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 .consol-count{font-size:12px;font-family:monospace;color:var(--ok);font-weight:bold;}
 .consol-count.empty{color:var(--faint);}
 .variant-note{font-size:11px;color:var(--faint);font-family:monospace;margin-top:8px;padding:8px 12px;background:var(--s2);border-left:2px solid var(--gold);border-radius:4px;line-height:1.5;}
+.resilience-note{font-size:11px;color:var(--info);font-family:monospace;padding:8px 12px;background:var(--info-bg);border-left:2px solid var(--info);border-radius:4px;line-height:1.5;margin-bottom:8px;margin-top:8px;}
 @media(max-width:640px){.two-col{grid-template-columns:1fr;}.tab-nav button{font-size:11px;padding:10px 4px;}.tab-nav button .tn{display:none;}.api-inp{width:120px;}header{padding:0 1rem;}.consol-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -175,7 +180,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       <button onclick="switchTab(4,this)"><span class="tn">5</span>Consolidate</button>
     </div>
 
-    <!-- TAB 1 -->
     <div class="tab-panel active" id="tab-0">
       <div class="tab-body">
         <div class="two-col">
@@ -194,10 +198,12 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           </div>
         </div>
         <div class="variant-note">Size is stripped from generated titles, highlights, and specs tables so the output covers all sizes of the product. Color, length, gauge, voltage, and other attributes are kept.</div>
+        <div class="resilience-note">Resume-on-failure: if a row fails, the run stops there with completed rows intact. Click Resume to retry that row and continue. Auto-retries each row once on transient errors.</div>
         <div class="msg" id="t1-msg"></div>
         <div class="prog-wrap" id="t1-prog"><div class="prog-track"><div class="prog-fill" id="t1-pfill"></div></div><div class="prog-lbl" id="t1-plbl"></div></div>
-        <button class="btn btn-navy" id="t1-gen" onclick="runTab1()"><span id="t1-lbl">Generate Product Names</span></button>
+        <button class="btn btn-navy" id="t1-gen" onclick="runTab1(false)"><span id="t1-lbl">Generate Product Names</span></button>
         <button class="btn btn-stop" id="t1-stop" onclick="doStop('t1')">&#9632; Stop</button>
+        <button class="btn btn-resume" id="t1-resume" onclick="runTab1(true)">&#9654; Resume</button>
         <div class="res-block" id="t1-res">
           <div class="res-hdr"><div class="res-title">Results</div><div class="res-meta" id="t1-meta"></div></div>
           <div class="exp-row">
@@ -221,14 +227,15 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <!-- TAB 2 -->
     <div class="tab-panel" id="tab-1">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product from your loaded file. Size is excluded.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product. Size is excluded.</p>
+        <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
         <div class="msg" id="t2-msg"></div>
         <div class="prog-wrap" id="t2-prog"><div class="prog-track"><div class="prog-fill" id="t2-pfill"></div></div><div class="prog-lbl" id="t2-plbl"></div></div>
-        <button class="btn btn-navy" id="t2-gen" onclick="runTab2()"><span id="t2-lbl">Generate Highlights</span></button>
+        <button class="btn btn-navy" id="t2-gen" onclick="runTab2(false)"><span id="t2-lbl">Generate Highlights</span></button>
         <button class="btn btn-stop" id="t2-stop" onclick="doStop('t2')">&#9632; Stop</button>
+        <button class="btn btn-resume" id="t2-resume" onclick="runTab2(true)">&#9654; Resume</button>
         <div class="res-block" id="t2-res">
           <div class="res-hdr"><div class="res-title">Highlights</div><div class="res-meta" id="t2-meta"></div></div>
           <div class="exp-row">
@@ -240,14 +247,15 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <!-- TAB 3 -->
     <div class="tab-panel" id="tab-2">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 from your file into HTML. Preserves every word exactly as written, including any size references.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 into HTML. Preserves every word exactly.</p>
+        <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
         <div class="msg" id="t3-msg"></div>
         <div class="prog-wrap" id="t3-prog"><div class="prog-track"><div class="prog-fill" id="t3-pfill"></div></div><div class="prog-lbl" id="t3-plbl"></div></div>
-        <button class="btn btn-navy" id="t3-gen" onclick="runTab3()"><span id="t3-lbl">Generate Descriptions</span></button>
+        <button class="btn btn-navy" id="t3-gen" onclick="runTab3(false)"><span id="t3-lbl">Generate Descriptions</span></button>
         <button class="btn btn-stop" id="t3-stop" onclick="doStop('t3')">&#9632; Stop</button>
+        <button class="btn btn-resume" id="t3-resume" onclick="runTab3(true)">&#9654; Resume</button>
         <div class="res-block" id="t3-res">
           <div class="res-hdr"><div class="res-title">Descriptions</div><div class="res-meta" id="t3-meta"></div></div>
           <div class="exp-row">
@@ -259,14 +267,15 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <!-- TAB 4 -->
     <div class="tab-panel" id="tab-3">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds a formatted HTML specs table with live preview. Size is excluded.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds an HTML specs table. Size is excluded.</p>
+        <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
         <div class="msg" id="t4-msg"></div>
         <div class="prog-wrap" id="t4-prog"><div class="prog-track"><div class="prog-fill" id="t4-pfill"></div></div><div class="prog-lbl" id="t4-plbl"></div></div>
-        <button class="btn btn-navy" id="t4-gen" onclick="runTab4()"><span id="t4-lbl">Generate HTML Tables</span></button>
+        <button class="btn btn-navy" id="t4-gen" onclick="runTab4(false)"><span id="t4-lbl">Generate HTML Tables</span></button>
         <button class="btn btn-stop" id="t4-stop" onclick="doStop('t4')">&#9632; Stop</button>
+        <button class="btn btn-resume" id="t4-resume" onclick="runTab4(true)">&#9654; Resume</button>
         <div class="res-block" id="t4-res">
           <div class="res-hdr"><div class="res-title">HTML Tables</div><div class="res-meta" id="t4-meta"></div></div>
           <div class="exp-row">
@@ -278,7 +287,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <!-- TAB 5 -->
     <div class="tab-panel" id="tab-4">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file.</p>
@@ -294,6 +302,8 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 var fileData = null;
 var stops = {t1:false,t2:false,t3:false,t4:false};
 var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
+// resumeFrom is the row index where a run stopped (failure or user-stop). null = no pending resume.
+var runState = {t1:{resumeFrom:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
 
 var CH = {
   amazon:{label:'Amazon',pill:'p-amz',max:200,target:185,
@@ -304,8 +314,6 @@ var CH = {
     rule:'Website/SEO title: MUST start with [Brand] [Part Number]. Then product type and primary keyword. Natural language. Target 60-70 characters.'}
 };
 
-// Master listing rule: applied to all generative tabs (titles, highlights, specs).
-// Tab 3 (description) preserves input verbatim and is intentionally exempt.
 var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
 
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
@@ -315,6 +323,7 @@ window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
   fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  runState={t1:{resumeFrom:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
   document.getElementById('uz').classList.remove('loaded');
   document.getElementById('uz-fname').textContent='';
   document.getElementById('uz-text').textContent='Drop Excel or CSV here, or click to browse';
@@ -322,6 +331,7 @@ function clearAll(){
   ['t1','t2','t3','t4'].forEach(function(t){
     var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');
     setMsg(t+'-msg','','');
+    showResume(t,false);
   });
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
   updateConsolGrid();
@@ -340,6 +350,9 @@ function loadFile(f){
       var data=XLSX.utils.sheet_to_json(ws,{defval:''});
       if(!data.length){document.getElementById('file-status').textContent='File appears empty.';return;}
       fileData=data;
+      // Loading a new file clears any pending resume state
+      runState={t1:{resumeFrom:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
+      ['t1','t2','t3','t4'].forEach(function(t){showResume(t,false);});
       document.getElementById('uz').classList.add('loaded');
       document.getElementById('uz-fname').textContent=f.name+' - '+data.length+' row(s)';
       document.getElementById('uz-text').textContent='File loaded';
@@ -382,6 +395,17 @@ function showStop(t,show){
   btn.innerHTML='&#9632; Stop';
 }
 
+function showResume(t,show,idx){
+  var btn=document.getElementById(t+'-resume');
+  if(!btn)return;
+  if(show){
+    btn.style.display='block';
+    btn.innerHTML='&#9654; Resume from row '+((idx||0)+1);
+  } else {
+    btn.style.display='none';
+  }
+}
+
 function enforceLimit(title,max){
   if(!title||title.length<=max)return title;
   var cut=title.substring(0,max);
@@ -419,49 +443,105 @@ async function apiCall(prompt,maxTok){
   return d.content.map(function(i){return i.text||'';}).join('').trim();
 }
 
-// TAB 1
-async function runTab1(){
+// One auto-retry with 3-second backoff. Catches transient rate-limit and network blips
+// without forcing the user to hit Resume for every hiccup.
+async function apiCallRetry(prompt, maxTok){
+  try {
+    return await apiCall(prompt, maxTok);
+  } catch (err) {
+    await new Promise(function(r){setTimeout(r, 3000);});
+    return await apiCall(prompt, maxTok);
+  }
+}
+
+// ---- TAB 1: Product Names ----
+async function runTab1(isResume){
   var err=validate();if(err){setMsg('t1-msg',err,'error');return;}
   setMsg('t1-msg','','');
   var channel=document.getElementById('t1-channel').value;
   var brand=document.getElementById('t1-brand').value.trim();
   var btn=document.getElementById('t1-gen');
-  btn.disabled=true;stops.t1=false;showStop('t1',true);
-  results.t1=[];
-  document.getElementById('t1-res').classList.remove('on');
+  btn.disabled=true;stops.t1=false;showStop('t1',true);showResume('t1',false);
+
   var rows=fileData;
+  var startIdx;
+  if(isResume && runState.t1.resumeFrom != null){
+    startIdx = runState.t1.resumeFrom;
+    setMsg('t1-msg','Resuming from row '+(startIdx+1)+'...','info');
+  } else {
+    startIdx = 0;
+    results.t1=[];
+    runState.t1.resumeFrom = null;
+  }
+
+  document.getElementById('t1-res').classList.add('on');
+  renderT1();
+
   var chs=channel==='all'?['amazon','ebay','website']:[channel];
-  try{
-    for(var i=0;i<rows.length;i++){
-      if(stops.t1){setMsg('t1-msg','Stopped after '+results.t1.length+' row(s).','info');break;}
-      setProg('t1',Math.round((i/rows.length)*95),'Row '+(i+1)+' of '+rows.length);
-      document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+rows.length;
+
+  for(var i=startIdx;i<rows.length;i++){
+    if(stops.t1){
+      runState.t1.resumeFrom = i;
+      setMsg('t1-msg','Stopped at row '+(i+1)+'. '+results.t1.length+' row(s) completed and ready to export.','warn');
+      showResume('t1',true,i);
+      break;
+    }
+    setProg('t1',Math.round((i/rows.length)*95),'Row '+(i+1)+' of '+rows.length);
+    document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+rows.length;
+    try {
       var pn=getPN(rows[i]);
       var b=getBrand(rows[i],brand);
       if(channel==='all'){
         var entry={partNumber:pn,row:rows[i],titles:{}};
         for(var ci=0;ci<chs.length;ci++){
           var p='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[chs[ci]].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[chs[ci]].target+' chars (hard max '+CH[chs[ci]].max+').'+VARIANT_EXCLUSION+'\n\nRespond with title text ONLY. No quotes. No explanation.';
-          var t=await apiCall(p,300);
+          var t=await apiCallRetry(p,300);
           entry.titles[chs[ci]]=enforceLimit(t,CH[chs[ci]].max);
         }
         results.t1.push(entry);
-      }else{
+      } else {
         var p2='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[channel].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[channel].target+' chars (hard max '+CH[channel].max+').'+VARIANT_EXCLUSION+'\n\nRespond with title text ONLY. No quotes. No explanation.';
-        var t2=await apiCall(p2,300);
+        var t2=await apiCallRetry(p2,300);
         results.t1.push({partNumber:pn,channel:channel,title:enforceLimit(t2,CH[channel].max),row:rows[i]});
       }
+      renderT1();
+    } catch (rowErr) {
+      runState.t1.resumeFrom = i;
+      setMsg('t1-msg','Failed at row '+(i+1)+': '+rowErr.message+'. '+results.t1.length+' row(s) completed and ready to export. Click Resume to retry from row '+(i+1)+'.','error');
+      setProg('t1',0,'');
+      showResume('t1',true,i);
+      btn.disabled=false;
+      document.getElementById('t1-lbl').textContent='Generate Product Names';
+      showStop('t1',false);
+      renderT1();
+      updateConsolGrid();
+      return;
     }
-    setProg('t1',100,'');setTimeout(function(){setProg('t1',0,'');},400);
-    renderT1();
-  }catch(e){setMsg('t1-msg','Error: '+e.message,'error');setProg('t1',0,'');}
-  btn.disabled=false;document.getElementById('t1-lbl').textContent='Generate Product Names';showStop('t1',false);updateConsolGrid();
+  }
+
+  if(!stops.t1){
+    runState.t1.resumeFrom = null;
+    setProg('t1',100,'');
+    setTimeout(function(){setProg('t1',0,'');},400);
+    setMsg('t1-msg','','');
+  }
+  renderT1();
+  btn.disabled=false;
+  document.getElementById('t1-lbl').textContent='Generate Product Names';
+  showStop('t1',false);
+  updateConsolGrid();
 }
 
 function renderT1(){
   var isAll=results.t1.length&&results.t1[0].titles;
   var thead=document.getElementById('t1-thead');
   var tbody=document.getElementById('t1-tbody');
+  if(!results.t1.length){
+    thead.innerHTML='<tr><th>#</th><th>Part Number</th><th>Status</th></tr>';
+    tbody.innerHTML='<tr><td colspan="3" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No rows yet. Click Generate to start.</td></tr>';
+    document.getElementById('t1-meta').textContent='0 items';
+    return;
+  }
   if(isAll){
     thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>Amazon (200)</th><th>eBay (80)</th><th>Website (70)</th></tr>';
   }else{
@@ -482,7 +562,7 @@ function renderT1(){
         var cls=len>cfg.max?'c-over':len>=cfg.target*0.85?'c-ok':'c-warn';
         rows+='<td><span class="pill '+cfg.pill+'">'+cfg.label+'</span><br><span class="td-main">'+esc(tv)+'</span><br><span class="td-chars '+cls+'">'+len+'/'+cfg.max+'</span> <button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch2+'" onclick="cp(this)">Copy</button></td>';
       }
-    }else{
+    } else {
       var ch3=r.channel;var cfg3=CH[ch3];var tv3=r.title||'';
       var len3=tv3.length;
       var cls3=len3>cfg3.max?'c-over':len3>=cfg3.target*0.85?'c-ok':'c-warn';
@@ -492,7 +572,6 @@ function renderT1(){
   }
   tbody.innerHTML=rows;
   document.getElementById('t1-meta').textContent=results.t1.length+' item(s)';
-  document.getElementById('t1-res').classList.add('on');
   updSel();
 }
 
@@ -528,42 +607,99 @@ function genSlugs(){
   document.getElementById('t1-slug-res').classList.add('on');
 }
 
-// TAB 2
-async function runTab2(){
+// ---- TAB 2: Highlights ----
+async function runTab2(isResume){
   var err=validate();if(err){setMsg('t2-msg',err,'error');return;}
   setMsg('t2-msg','','');
   var btn=document.getElementById('t2-gen');
-  btn.disabled=true;stops.t2=false;showStop('t2',true);
-  results.t2=[];document.getElementById('t2-res').classList.remove('on');
-  try{
-    for(var i=0;i<fileData.length;i++){
-      if(stops.t2){setMsg('t2-msg','Stopped after '+results.t2.length+' row(s).','info');break;}
-      setProg('t2',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
-      document.getElementById('t2-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+  btn.disabled=true;stops.t2=false;showStop('t2',true);showResume('t2',false);
+
+  var startIdx;
+  if(isResume && runState.t2.resumeFrom != null){
+    startIdx = runState.t2.resumeFrom;
+    setMsg('t2-msg','Resuming from row '+(startIdx+1)+'...','info');
+  } else {
+    startIdx = 0;
+    results.t2=[];
+    runState.t2.resumeFrom = null;
+  }
+
+  document.getElementById('t2-res').classList.add('on');
+  renderTab('t2',results.t2);
+
+  for(var i=startIdx;i<fileData.length;i++){
+    if(stops.t2){
+      runState.t2.resumeFrom = i;
+      setMsg('t2-msg','Stopped at row '+(i+1)+'. '+results.t2.length+' row(s) completed and ready to export.','warn');
+      showResume('t2',true,i);
+      break;
+    }
+    setProg('t2',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
+    document.getElementById('t2-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+    try {
       var row=fileData[i];var pn=getPN(row);
       var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
-      var rhtml=await apiCall(prompt,600);
+      var rhtml=await apiCallRetry(prompt,600);
       rhtml=rhtml.replace(/```html|```/g,'').trim();
       results.t2.push({partNumber:pn,html:rhtml,row:row});
+      renderTab('t2',results.t2);
+    } catch (rowErr) {
+      runState.t2.resumeFrom = i;
+      setMsg('t2-msg','Failed at row '+(i+1)+': '+rowErr.message+'. '+results.t2.length+' row(s) completed and ready to export. Click Resume to retry from row '+(i+1)+'.','error');
+      setProg('t2',0,'');
+      showResume('t2',true,i);
+      btn.disabled=false;
+      document.getElementById('t2-lbl').textContent='Generate Highlights';
+      showStop('t2',false);
+      renderTab('t2',results.t2);
+      updateConsolGrid();
+      return;
     }
-    setProg('t2',100,'');setTimeout(function(){setProg('t2',0,'');},400);
-    renderTab('t2',results.t2);
-  }catch(e){setMsg('t2-msg','Error: '+e.message,'error');setProg('t2',0,'');}
-  btn.disabled=false;document.getElementById('t2-lbl').textContent='Generate Highlights';showStop('t2',false);updateConsolGrid();
+  }
+
+  if(!stops.t2){
+    runState.t2.resumeFrom = null;
+    setProg('t2',100,'');
+    setTimeout(function(){setProg('t2',0,'');},400);
+    setMsg('t2-msg','','');
+  }
+  renderTab('t2',results.t2);
+  btn.disabled=false;
+  document.getElementById('t2-lbl').textContent='Generate Highlights';
+  showStop('t2',false);
+  updateConsolGrid();
 }
 
-// TAB 3
-async function runTab3(){
+// ---- TAB 3: Description ----
+async function runTab3(isResume){
   var err=validate();if(err){setMsg('t3-msg',err,'error');return;}
   setMsg('t3-msg','','');
   var btn=document.getElementById('t3-gen');
-  btn.disabled=true;stops.t3=false;showStop('t3',true);
-  results.t3=[];document.getElementById('t3-res').classList.remove('on');
-  try{
-    for(var i=0;i<fileData.length;i++){
-      if(stops.t3){setMsg('t3-msg','Stopped after '+results.t3.length+' row(s).','info');break;}
-      setProg('t3',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
-      document.getElementById('t3-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+  btn.disabled=true;stops.t3=false;showStop('t3',true);showResume('t3',false);
+
+  var startIdx;
+  if(isResume && runState.t3.resumeFrom != null){
+    startIdx = runState.t3.resumeFrom;
+    setMsg('t3-msg','Resuming from row '+(startIdx+1)+'...','info');
+  } else {
+    startIdx = 0;
+    results.t3=[];
+    runState.t3.resumeFrom = null;
+  }
+
+  document.getElementById('t3-res').classList.add('on');
+  renderTab('t3',results.t3);
+
+  for(var i=startIdx;i<fileData.length;i++){
+    if(stops.t3){
+      runState.t3.resumeFrom = i;
+      setMsg('t3-msg','Stopped at row '+(i+1)+'. '+results.t3.length+' row(s) completed and ready to export.','warn');
+      showResume('t3',true,i);
+      break;
+    }
+    setProg('t3',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
+    document.getElementById('t3-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+    try {
       var row=fileData[i];var pn=getPN(row);
       var ai1=row['Additional Info 1']||row['additional info 1']||row['Additional Info']||row['additional info']||'';
       var ai2=row['Additional Info 2']||row['additional info 2']||'';
@@ -571,42 +707,107 @@ async function runTab3(){
       var rawDesc=[ai1,ai2,ai3].filter(function(s){return s&&s.trim();}).join(' ');
       if(!rawDesc)rawDesc=row['Key Specs']||row['key specs']||row['specs']||JSON.stringify(row);
       var prompt='You are an HTML formatter for product listings.\n\nYour ONLY job is to convert the raw description text below into clean HTML.\n\nSTRICT RULES:\n- Preserve EVERY word exactly as written. Do not add, remove, reword, summarize, or rephrase anything.\n- Do not make assumptions. Do not improve the copy. Do not remove marketing language.\n- Convert the existing structure to HTML only:\n  * Paragraphs become <p> tags\n  * Bullet lists become <ul><li> items\n  * Section headers like Features: or Instructions: become <p><strong>Header:</strong></p>\n  * Bold or emphasized words use <strong> tags\n- Output valid HTML only. No preamble, no explanation, no markdown, no extra tags outside the content.\n- The words in your output must be identical to the words in the input.\n\nRAW DESCRIPTION:\n'+rawDesc+'\n\nReturn the HTML-formatted version of this text with zero content changes.';
-      var rhtml=await apiCall(prompt,800);
+      var rhtml=await apiCallRetry(prompt,800);
       rhtml=rhtml.replace(/```html|```/g,'').trim();
       results.t3.push({partNumber:pn,html:rhtml,row:row});
+      renderTab('t3',results.t3);
+    } catch (rowErr) {
+      runState.t3.resumeFrom = i;
+      setMsg('t3-msg','Failed at row '+(i+1)+': '+rowErr.message+'. '+results.t3.length+' row(s) completed and ready to export. Click Resume to retry from row '+(i+1)+'.','error');
+      setProg('t3',0,'');
+      showResume('t3',true,i);
+      btn.disabled=false;
+      document.getElementById('t3-lbl').textContent='Generate Descriptions';
+      showStop('t3',false);
+      renderTab('t3',results.t3);
+      updateConsolGrid();
+      return;
     }
-    setProg('t3',100,'');setTimeout(function(){setProg('t3',0,'');},400);
-    renderTab('t3',results.t3);
-  }catch(e){setMsg('t3-msg','Error: '+e.message,'error');setProg('t3',0,'');}
-  btn.disabled=false;document.getElementById('t3-lbl').textContent='Generate Descriptions';showStop('t3',false);updateConsolGrid();
+  }
+
+  if(!stops.t3){
+    runState.t3.resumeFrom = null;
+    setProg('t3',100,'');
+    setTimeout(function(){setProg('t3',0,'');},400);
+    setMsg('t3-msg','','');
+  }
+  renderTab('t3',results.t3);
+  btn.disabled=false;
+  document.getElementById('t3-lbl').textContent='Generate Descriptions';
+  showStop('t3',false);
+  updateConsolGrid();
 }
 
-// TAB 4
-async function runTab4(){
+// ---- TAB 4: HTML Tables ----
+async function runTab4(isResume){
   var err=validate();if(err){setMsg('t4-msg',err,'error');return;}
   setMsg('t4-msg','','');
   var btn=document.getElementById('t4-gen');
-  btn.disabled=true;stops.t4=false;showStop('t4',true);
-  results.t4=[];document.getElementById('t4-res').classList.remove('on');
-  try{
-    for(var i=0;i<fileData.length;i++){
-      if(stops.t4){setMsg('t4-msg','Stopped after '+results.t4.length+' row(s).','info');break;}
-      setProg('t4',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
-      document.getElementById('t4-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+  btn.disabled=true;stops.t4=false;showStop('t4',true);showResume('t4',false);
+
+  var startIdx;
+  if(isResume && runState.t4.resumeFrom != null){
+    startIdx = runState.t4.resumeFrom;
+    setMsg('t4-msg','Resuming from row '+(startIdx+1)+'...','info');
+  } else {
+    startIdx = 0;
+    results.t4=[];
+    runState.t4.resumeFrom = null;
+  }
+
+  document.getElementById('t4-res').classList.add('on');
+  renderTab('t4',results.t4);
+
+  for(var i=startIdx;i<fileData.length;i++){
+    if(stops.t4){
+      runState.t4.resumeFrom = i;
+      setMsg('t4-msg','Stopped at row '+(i+1)+'. '+results.t4.length+' row(s) completed and ready to export.','warn');
+      showResume('t4',true,i);
+      break;
+    }
+    setProg('t4',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
+    document.getElementById('t4-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
+    try {
       var row=fileData[i];var pn=getPN(row);
       var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
-      var rhtml=await apiCall(prompt,800);
+      var rhtml=await apiCallRetry(prompt,800);
       rhtml=rhtml.replace(/```html|```/g,'').trim();
       results.t4.push({partNumber:pn,html:rhtml,row:row});
+      renderTab('t4',results.t4);
+    } catch (rowErr) {
+      runState.t4.resumeFrom = i;
+      setMsg('t4-msg','Failed at row '+(i+1)+': '+rowErr.message+'. '+results.t4.length+' row(s) completed and ready to export. Click Resume to retry from row '+(i+1)+'.','error');
+      setProg('t4',0,'');
+      showResume('t4',true,i);
+      btn.disabled=false;
+      document.getElementById('t4-lbl').textContent='Generate HTML Tables';
+      showStop('t4',false);
+      renderTab('t4',results.t4);
+      updateConsolGrid();
+      return;
     }
-    setProg('t4',100,'');setTimeout(function(){setProg('t4',0,'');},400);
-    renderTab('t4',results.t4);
-  }catch(e){setMsg('t4-msg','Error: '+e.message,'error');setProg('t4',0,'');}
-  btn.disabled=false;document.getElementById('t4-lbl').textContent='Generate HTML Tables';showStop('t4',false);updateConsolGrid();
+  }
+
+  if(!stops.t4){
+    runState.t4.resumeFrom = null;
+    setProg('t4',100,'');
+    setTimeout(function(){setProg('t4',0,'');},400);
+    setMsg('t4-msg','','');
+  }
+  renderTab('t4',results.t4);
+  btn.disabled=false;
+  document.getElementById('t4-lbl').textContent='Generate HTML Tables';
+  showStop('t4',false);
+  updateConsolGrid();
 }
 
 function renderTab(prefix,data){
   var tbody=document.getElementById(prefix+'-tbody');
+  if(!data.length){
+    tbody.innerHTML='<tr><td colspan="4" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No rows yet. Click Generate to start.</td></tr>';
+    document.getElementById(prefix+'-meta').textContent='0 items';
+    return;
+  }
   var rows='';
   for(var i=0;i<data.length;i++){
     var r=data[i];
@@ -616,7 +817,6 @@ function renderTab(prefix,data){
   }
   tbody.innerHTML=rows;
   document.getElementById(prefix+'-meta').textContent=data.length+' item(s)';
-  document.getElementById(prefix+'-res').classList.add('on');
 }
 
 function cp(btn){
@@ -666,25 +866,29 @@ function runConsolidate(){
 }
 
 function expCSV(prefix){
-  var data=results[prefix];if(!data||!data.length)return;
+  var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
   var rows;
   if(prefix==='t1'){
     var isAll=data[0].titles!=null;
     if(isAll){rows=[['#','Part Number','Amazon Title','Amazon Chars','eBay Title','eBay Chars','Website Title','Website Chars']];data.forEach(function(r,i){var a=r.titles.amazon||'',e=r.titles.ebay||'',w=r.titles.website||'';rows.push([i+1,r.partNumber||'',a,a.length,e,e.length,w,w.length]);});}
     else{rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});}
-  }else{rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});}
+  } else {
+    rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});
+  }
   var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   dl(new Blob([csv],{type:'text/csv'}),prefix+'-output.csv');
 }
 
 function expXLSX(prefix){
-  var data=results[prefix];if(!data||!data.length)return;
+  var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
   var rows;
   if(prefix==='t1'){
     var isAll=data[0].titles!=null;
     if(isAll){rows=[['#','Part Number','Amazon Title','Amazon Chars','eBay Title','eBay Chars','Website Title','Website Chars']];data.forEach(function(r,i){var a=r.titles.amazon||'',e=r.titles.ebay||'',w=r.titles.website||'';rows.push([i+1,r.partNumber||'',a,a.length,e,e.length,w,w.length]);});}
     else{rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});}
-  }else{rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});}
+  } else {
+    rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});
+  }
   var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);XLSX.utils.book_append_sheet(wb2,ws,'Output');XLSX.writeFile(wb2,prefix+'-output.xlsx');
 }
 
