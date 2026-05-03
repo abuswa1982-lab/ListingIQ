@@ -128,6 +128,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 .consol-name{font-size:13px;color:var(--text);}
 .consol-count{font-size:12px;font-family:monospace;color:var(--ok);font-weight:bold;}
 .consol-count.empty{color:var(--faint);}
+.variant-note{font-size:11px;color:var(--faint);font-family:monospace;margin-top:8px;padding:8px 12px;background:var(--s2);border-left:2px solid var(--gold);border-radius:4px;line-height:1.5;}
 @media(max-width:640px){.two-col{grid-template-columns:1fr;}.tab-nav button{font-size:11px;padding:10px 4px;}.tab-nav button .tn{display:none;}.api-inp{width:120px;}header{padding:0 1rem;}.consol-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -192,6 +193,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
             <input type="text" id="t1-brand" placeholder="e.g. Wright Tool">
           </div>
         </div>
+        <div class="variant-note">Size is stripped from generated titles, highlights, and specs tables so the output covers all sizes of the product. Color, length, gauge, voltage, and other attributes are kept.</div>
         <div class="msg" id="t1-msg"></div>
         <div class="prog-wrap" id="t1-prog"><div class="prog-track"><div class="prog-fill" id="t1-pfill"></div></div><div class="prog-lbl" id="t1-plbl"></div></div>
         <button class="btn btn-navy" id="t1-gen" onclick="runTab1()"><span id="t1-lbl">Generate Product Names</span></button>
@@ -222,7 +224,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <!-- TAB 2 -->
     <div class="tab-panel" id="tab-1">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product from your loaded file.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product from your loaded file. Size is excluded.</p>
         <div class="msg" id="t2-msg"></div>
         <div class="prog-wrap" id="t2-prog"><div class="prog-track"><div class="prog-fill" id="t2-pfill"></div></div><div class="prog-lbl" id="t2-plbl"></div></div>
         <button class="btn btn-navy" id="t2-gen" onclick="runTab2()"><span id="t2-lbl">Generate Highlights</span></button>
@@ -241,7 +243,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <!-- TAB 3 -->
     <div class="tab-panel" id="tab-2">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 from your file into HTML. Preserves every word exactly as written.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 from your file into HTML. Preserves every word exactly as written, including any size references.</p>
         <div class="msg" id="t3-msg"></div>
         <div class="prog-wrap" id="t3-prog"><div class="prog-track"><div class="prog-fill" id="t3-pfill"></div></div><div class="prog-lbl" id="t3-plbl"></div></div>
         <button class="btn btn-navy" id="t3-gen" onclick="runTab3()"><span id="t3-lbl">Generate Descriptions</span></button>
@@ -260,7 +262,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <!-- TAB 4 -->
     <div class="tab-panel" id="tab-3">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds a formatted HTML specs table with live preview.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds a formatted HTML specs table with live preview. Size is excluded.</p>
         <div class="msg" id="t4-msg"></div>
         <div class="prog-wrap" id="t4-prog"><div class="prog-track"><div class="prog-fill" id="t4-pfill"></div></div><div class="prog-lbl" id="t4-plbl"></div></div>
         <button class="btn btn-navy" id="t4-gen" onclick="runTab4()"><span id="t4-lbl">Generate HTML Tables</span></button>
@@ -295,12 +297,16 @@ var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
 
 var CH = {
   amazon:{label:'Amazon',pill:'p-amz',max:200,target:185,
-    rule:'Amazon title: MUST start with [Brand] [Part Number]. Then product type, key specs, features, keywords. Target 180-200 characters — under 150 is unacceptable. No special chars (! $ ? _ { }). No word repeated more than twice. Capitalize first letter of each major word.'},
+    rule:'Amazon title: MUST start with [Brand] [Part Number]. Then product type, key specs, features, keywords. Target 180-200 characters - under 150 is unacceptable. No special chars (! $ ? _ { }). No word repeated more than twice. Capitalize first letter of each major word.'},
   ebay:{label:'eBay',pill:'p-eby',max:80,target:78,
     rule:'eBay title: MUST start with [Brand] [Part Number]. Then product type and key specs. Hard limit 80 characters. Target 75-80. Use every character.'},
   website:{label:'Website/SEO',pill:'p-web',max:70,target:65,
     rule:'Website/SEO title: MUST start with [Brand] [Part Number]. Then product type and primary keyword. Natural language. Target 60-70 characters.'}
 };
+
+// Master listing rule: applied to all generative tabs (titles, highlights, specs).
+// Tab 3 (description) preserves input verbatim and is intentionally exempt.
+var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
 
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
@@ -335,7 +341,7 @@ function loadFile(f){
       if(!data.length){document.getElementById('file-status').textContent='File appears empty.';return;}
       fileData=data;
       document.getElementById('uz').classList.add('loaded');
-      document.getElementById('uz-fname').textContent=f.name+' — '+data.length+' row(s)';
+      document.getElementById('uz-fname').textContent=f.name+' - '+data.length+' row(s)';
       document.getElementById('uz-text').textContent='File loaded';
       document.getElementById('file-status').textContent='Columns: '+Object.keys(data[0]).join(', ');
     }catch(err){document.getElementById('file-status').textContent='Error: '+err.message;}
@@ -435,13 +441,13 @@ async function runTab1(){
       if(channel==='all'){
         var entry={partNumber:pn,row:rows[i],titles:{}};
         for(var ci=0;ci<chs.length;ci++){
-          var p='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[chs[ci]].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[chs[ci]].target+' chars (hard max '+CH[chs[ci]].max+').\nRespond with title text ONLY. No quotes. No explanation.';
+          var p='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[chs[ci]].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[chs[ci]].target+' chars (hard max '+CH[chs[ci]].max+').'+VARIANT_EXCLUSION+'\n\nRespond with title text ONLY. No quotes. No explanation.';
           var t=await apiCall(p,300);
           entry.titles[chs[ci]]=enforceLimit(t,CH[chs[ci]].max);
         }
         results.t1.push(entry);
       }else{
-        var p2='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[channel].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[channel].target+' chars (hard max '+CH[channel].max+').\nRespond with title text ONLY. No quotes. No explanation.';
+        var p2='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[channel].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[channel].target+' chars (hard max '+CH[channel].max+').'+VARIANT_EXCLUSION+'\n\nRespond with title text ONLY. No quotes. No explanation.';
         var t2=await apiCall(p2,300);
         results.t1.push({partNumber:pn,channel:channel,title:enforceLimit(t2,CH[channel].max),row:rows[i]});
       }
@@ -535,7 +541,7 @@ async function runTab2(){
       setProg('t2',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
       document.getElementById('t2-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
       var row=fileData[i];var pn=getPN(row);
-      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight — whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
+      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
       var rhtml=await apiCall(prompt,600);
       rhtml=rhtml.replace(/```html|```/g,'').trim();
       results.t2.push({partNumber:pn,html:rhtml,row:row});
@@ -588,7 +594,7 @@ async function runTab4(){
       setProg('t4',Math.round((i/fileData.length)*95),'Row '+(i+1)+' of '+fileData.length);
       document.getElementById('t4-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
       var row=fileData[i];var pn=getPN(row);
-      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Table format: two columns — Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only — no preamble, no explanation, no markdown, no extra tags\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
+      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
       var rhtml=await apiCall(prompt,800);
       rhtml=rhtml.replace(/```html|```/g,'').trim();
       results.t4.push({partNumber:pn,html:rhtml,row:row});
