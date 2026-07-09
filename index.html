@@ -436,7 +436,7 @@ async function apiCall(prompt,maxTok){
       'anthropic-version':'2023-06-01',
       'anthropic-dangerous-direct-browser-access':'true'
     },
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTok||600,messages:[{role:'user',content:prompt}]})
+    body:JSON.stringify({model:'claude-sonnet-5',max_tokens:maxTok||600,messages:[{role:'user',content:prompt}]})
   });
   if(!res.ok){var e=await res.json();throw new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);}
   var d=await res.json();
