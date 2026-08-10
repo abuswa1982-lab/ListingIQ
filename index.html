@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ListingIQ — Modonix</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{
@@ -173,14 +174,84 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 
   <div class="tabs-wrap">
     <div class="tab-nav">
-      <button class="active" onclick="switchTab(0,this)"><span class="tn">1</span>Product Name</button>
-      <button onclick="switchTab(1,this)"><span class="tn">2</span>Highlights</button>
-      <button onclick="switchTab(2,this)"><span class="tn">3</span>Description</button>
-      <button onclick="switchTab(3,this)"><span class="tn">4</span>HTML Table</button>
-      <button onclick="switchTab(4,this)"><span class="tn">5</span>Consolidate</button>
+      <button class="active" onclick="switchTab(0,this)"><span class="tn">1</span>Merge Data</button>
+      <button onclick="switchTab(1,this)"><span class="tn">2</span>Product Name</button>
+      <button onclick="switchTab(2,this)"><span class="tn">3</span>Highlights</button>
+      <button onclick="switchTab(3,this)"><span class="tn">4</span>Description</button>
+      <button onclick="switchTab(4,this)"><span class="tn">5</span>HTML Table</button>
+      <button onclick="switchTab(5,this)"><span class="tn">6</span>Consolidate</button>
     </div>
 
     <div class="tab-panel active" id="tab-0">
+      <div class="tab-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Manufacturers often hand you a thin spec sheet ("see catalog for details") plus a separate PDF catalog with the actual descriptions, features, and applications. This step reads the PDF catalog, matches each row of your spec sheet to its catalog content by item number, and produces a clean merged dataset in the format the rest of ListingIQ expects (Part Number / Brand / Product Type / Key Specs / Additional Info 1-3) — which then feeds Tabs 2-5 exactly like a normal upload.</p>
+
+        <div class="resilience-note">Only have one of the two files? This tab still helps. Spec sheet but no catalog: skip Step 1 and go straight to Step 2 - it'll still flatten a messy multi-section sheet and clean it up, just without catalog enrichment. Catalog but no spec sheet: upload just the PDF, run Step 1, then use "Build Rows From Catalog Only" instead of Step 2. Already have a clean, single-table sheet? Skip this tab entirely and upload straight into the box at the top of the page - Product Name/Highlights/etc. work exactly as before.</div>
+        <div class="resilience-note">Step 1: upload your raw manufacturer spec sheet in the box at the top of the page (Excel/CSV) — that's the file this tab merges catalog content into. Step 2: upload the manufacturer's PDF catalog below. Nothing here is sent anywhere except to Claude's API using the key you saved above.</div>
+
+        <div class="field" style="margin-top:1rem;">
+          <label>Manufacturer catalog (PDF)</label>
+          <div class="upload-zone" id="uz-pdf" onclick="document.getElementById('fi-pdf').click()" ondragover="udragPdf(event,true)" ondragleave="udragPdf(event,false)" ondrop="udropPdf(event)">
+            <div class="uz-icon">&#8679;</div>
+            <div>
+              <div class="uz-text" id="uz-pdf-text">Drop catalog PDF here, or click to browse</div>
+              <div class="uz-sub">.pdf</div>
+              <div class="uz-fname" id="uz-pdf-fname"></div>
+            </div>
+          </div>
+          <input type="file" id="fi-pdf" accept=".pdf" style="display:none" onchange="fpickPdf(event)">
+        </div>
+
+        <div class="field">
+          <label>Pages to extract <span style="color:var(--faint);font-size:10px;">(optional)</span></label>
+          <input type="text" id="mg-pagerange" placeholder='e.g. 18-22,25 - leave blank for all pages'>
+          <div class="uz-sub" id="mg-pagerange-hint" style="margin-top:4px;">Upload a PDF above to see its page count.</div>
+        </div>
+
+        <div class="two-col">
+          <div class="field">
+            <label>Brand / Manufacturer <span style="color:var(--faint);font-size:10px;">(used for every merged row)</span></label>
+            <input type="text" id="mg-brand" placeholder="e.g. Sterling Saw Blades">
+          </div>
+          <div class="field">
+            <label>Item/Part Number column in spec sheet <span style="color:var(--faint);font-size:10px;">(optional — auto-detected if blank)</span></label>
+            <input type="text" id="mg-itemcol" placeholder="e.g. Item - QTY">
+          </div>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="mg-strip" checked style="width:auto;">
+          <label for="mg-strip" style="margin:0;">Strip trailing pack-size suffix when matching (e.g. "40610-5" and "40610-50" both match catalog item "40610")</label>
+        </div>
+
+        <div class="msg" id="mg1-msg"></div>
+        <div class="prog-wrap" id="mg1-prog"><div class="prog-track"><div class="prog-fill" id="mg1-pfill"></div></div><div class="prog-lbl" id="mg1-plbl"></div></div>
+        <button class="btn btn-navy" id="mg1-gen" onclick="extractCatalog()"><span id="mg1-lbl">1. Extract Catalog Content</span></button>
+        <button class="btn btn-stop" id="mg1-stop" onclick="doStop('mg1')">&#9632; Stop</button>
+
+        <div class="res-block" id="mg1-res">
+          <div class="res-hdr"><div class="res-title">Extracted Catalog Entries</div><div class="res-meta" id="mg1-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="downloadCatalogIndex()">&#8595; Download extracted catalog data (Excel)</button>
+            <button class="btn-sm" onclick="buildRowsFromCatalogOnly()">Build Rows From Catalog Only (no spec sheet)</button>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr><th>Item No.</th><th>Product Family</th><th>Extracted Content</th></tr></thead><tbody id="mg1-tbody"></tbody></table></div>
+        </div>
+
+        <div class="msg" id="mg2-msg" style="margin-top:1.25rem;"></div>
+        <button class="btn btn-gold" id="mg2-gen" onclick="mergeData()" style="margin-top:1rem;">2. Merge Into Spec Sheet</button>
+
+        <div class="res-block" id="mg2-res">
+          <div class="res-hdr"><div class="res-title">Merge Preview</div><div class="res-meta" id="mg2-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="downloadMergedXLSX()">&#8595; Download merged data (Excel)</button>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr><th>Part Number</th><th>Matched?</th><th>Product Type</th><th>Key Specs</th><th>Additional Info 1</th></tr></thead><tbody id="mg2-tbody"></tbody></table></div>
+          <button class="btn btn-navy" onclick="useMergedData()" style="margin-top:1rem;">Use This Merged Data &#8594; Go to Product Name</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-1">
       <div class="tab-body">
         <div class="two-col">
           <div class="field">
@@ -227,7 +298,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <div class="tab-panel" id="tab-1">
+    <div class="tab-panel" id="tab-2">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product. Size is excluded.</p>
         <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
@@ -247,7 +318,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <div class="tab-panel" id="tab-2">
+    <div class="tab-panel" id="tab-3">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 into HTML. Preserves every word exactly.</p>
         <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
@@ -267,7 +338,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <div class="tab-panel" id="tab-3">
+    <div class="tab-panel" id="tab-4">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds an HTML specs table. Size is excluded.</p>
         <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
@@ -287,7 +358,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
 
-    <div class="tab-panel" id="tab-4">
+    <div class="tab-panel" id="tab-5">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file.</p>
         <div class="consol-grid" id="consol-grid"></div>
@@ -335,11 +406,94 @@ function clearAll(){
   });
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
   updateConsolGrid();
+
+  pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];
+  var uzp=document.getElementById('uz-pdf');if(uzp)uzp.classList.remove('loaded');
+  var uzpf=document.getElementById('uz-pdf-fname');if(uzpf)uzpf.textContent='';
+  var uzpt=document.getElementById('uz-pdf-text');if(uzpt)uzpt.textContent='Drop catalog PDF here, or click to browse';
+  setMsg('mg1-msg','','');setMsg('mg2-msg','','');
+  var mg1r=document.getElementById('mg1-res');if(mg1r)mg1r.classList.remove('on');
+  var mg2r=document.getElementById('mg2-res');if(mg2r)mg2r.classList.remove('on');
+  var pr=document.getElementById('mg-pagerange');if(pr)pr.value='';
+  var prh=document.getElementById('mg-pagerange-hint');if(prh)prh.textContent='Upload a PDF above to see its page count.';
 }
 
 function udrag(e,on){e.preventDefault();document.getElementById('uz').classList.toggle('drag',on);}
 function udrop(e){e.preventDefault();document.getElementById('uz').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadFile(f);}
 function fpick(e){var f=e.target.files[0];if(f)loadFile(f);}
+
+// Manufacturer exports often carry a merged "title" row above the real header
+// (e.g. a product-line banner spanning the sheet). Detect and skip any such
+// leading rows so the real header (>=2 non-empty cells) is used correctly.
+// Manufacturer print-catalog-to-Excel exports are frequently NOT one clean table.
+// A single sheet often stacks many product-family blocks, each with its own
+// banner/title line(s), its own header row, and sometimes its own distinct set
+// of columns (e.g. a "Shank Type" column that only exists for one family).
+// This parser walks the sheet looking for header rows (a row whose first cell
+// reads like "Item No." / "Part Number" / "SKU" / etc. and has several other
+// non-empty cells) and treats everything between one header and the next as
+// that block's own mini-table, tagging every row with the nearest preceding
+// title text as a "Section" column. Item numbers/SKUs are recognized as data
+// rows because they're short single tokens with no spaces; everything else
+// (titles, marketing blurbs, packaging notes) is treated as narrative text
+// and folded into the Section label instead of becoming a garbage data row.
+// If no such header row is ever found, it falls back to the simple
+// first-row-is-the-header behavior so already-clean single-table sheets are
+// unaffected.
+function looksLikeHeaderRow(rowArr){
+  var first=String(rowArr[0]||'').trim().toLowerCase();
+  if(!first)return false;
+  var nonEmpty=rowArr.filter(function(c){return String(c).trim()!=='';}).length;
+  if(nonEmpty<3)return false;
+  return /^(item|part|sku|model|code)\b/.test(first);
+}
+function looksLikeDataRow(rowArr){
+  var first=String(rowArr[0]||'').trim();
+  if(!first||first.length>24)return false;
+  return!/\s/.test(first);
+}
+function parseSheetSections(ws){
+  var aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+  if(!aoa.length)return{data:[],sections:0};
+  var data=[],sections=0,pendingTitleLines=[],currentHeaders=null,currentSection='';
+  for(var i=0;i<aoa.length;i++){
+    var row=aoa[i];
+    var nonEmpty=row.filter(function(c){return String(c).trim()!=='';}).length;
+    if(nonEmpty===0)continue;
+    if(looksLikeHeaderRow(row)){
+      currentHeaders=row.map(function(h,idx){var hs=String(h).trim();return hs?hs:'Column'+(idx+1);});
+      currentSection=pendingTitleLines.join(' ').replace(/\s+/g,' ').trim().slice(0,160);
+      pendingTitleLines=[];
+      sections++;
+      continue;
+    }
+    if(currentHeaders&&looksLikeDataRow(row)){
+      var obj={};
+      currentHeaders.forEach(function(h,ci){obj[h]=row[ci]!==undefined?row[ci]:'';});
+      obj['Section']=currentSection;
+      data.push(obj);
+      continue;
+    }
+    var text=String(row[0]||'').trim();
+    if(text)pendingTitleLines.push(text);
+  }
+  // Fallback: nothing matched the header heuristic anywhere (e.g. an
+  // already-clean sheet whose header doesn't start with Item/Part/SKU/etc.)
+  // - use the plain first-row-is-header behavior instead.
+  if(sections===0){
+    var headers=aoa[0].map(function(h,idx){var hs=String(h).trim();return hs?hs:'Column'+(idx+1);});
+    data=[];
+    for(var r=1;r<aoa.length;r++){
+      var rowArr=aoa[r];
+      var isEmpty=rowArr.every(function(c){return String(c).trim()==='';});
+      if(isEmpty)continue;
+      var o={};
+      headers.forEach(function(h,ci){o[h]=rowArr[ci]!==undefined?rowArr[ci]:'';});
+      data.push(o);
+    }
+  }
+  return{data:data,sections:sections};
+}
 
 function loadFile(f){
   var reader=new FileReader();
@@ -347,7 +501,8 @@ function loadFile(f){
     try{
       var wb=XLSX.read(e.target.result,{type:'array'});
       var ws=wb.Sheets[wb.SheetNames[0]];
-      var data=XLSX.utils.sheet_to_json(ws,{defval:''});
+      var parsed=parseSheetSections(ws);
+      var data=parsed.data;
       if(!data.length){document.getElementById('file-status').textContent='File appears empty.';return;}
       fileData=data;
       // Loading a new file clears any pending resume state
@@ -356,7 +511,8 @@ function loadFile(f){
       document.getElementById('uz').classList.add('loaded');
       document.getElementById('uz-fname').textContent=f.name+' - '+data.length+' row(s)';
       document.getElementById('uz-text').textContent='File loaded';
-      document.getElementById('file-status').textContent='Columns: '+Object.keys(data[0]).join(', ');
+      var sectionNote=parsed.sections>1?' - detected '+parsed.sections+' product-family sections in this sheet, each tagged in a "Section" column':'';
+      document.getElementById('file-status').textContent='Columns: '+Object.keys(data[0]).join(', ')+sectionNote;
     }catch(err){document.getElementById('file-status').textContent='Error: '+err.message;}
   };
   reader.readAsArrayBuffer(f);
@@ -367,7 +523,7 @@ function switchTab(idx,btn){
   document.querySelectorAll('.tab-nav button').forEach(function(b){b.classList.remove('active');});
   document.getElementById('tab-'+idx).classList.add('active');
   btn.classList.add('active');
-  if(idx===4)updateConsolGrid();
+  if(idx===5)updateConsolGrid();
 }
 
 function setMsg(id,msg,type){var el=document.getElementById(id);if(!el)return;el.className='msg'+(type?' '+type:'');el.textContent=msg;}
@@ -925,6 +1081,509 @@ function dlXLSX(){
   var ws2=XLSX.utils.aoa_to_sheet(inst);ws2['!cols']=[{wch:28},{wch:12},{wch:60}];
   XLSX.utils.book_append_sheet(wb2,ws2,'Instructions');
   XLSX.writeFile(wb2,'ListingIQ-template.xlsx');
+}
+
+// ================= MERGE DATA TAB (raw manufacturer spec sheet + PDF catalog -> clean ListingIQ input) =================
+// Point pdf.js at its worker script directly. An earlier version of this
+// routed the worker through a fetch()+blob: URL to avoid a cosmetic
+// "Setting up fake worker" console warning (caused by the worker script
+// living on a different origin than this page) - but blob: URLs get
+// intercepted/rewritten by some embedded viewers and sandboxed webviews,
+// which turned a harmless warning into a hard failure there. A plain CDN
+// URL is more universally compatible: worst case is that same cosmetic
+// warning while pdf.js quietly falls back to running on the main thread,
+// which still works correctly.
+if(typeof pdfjsLib!=='undefined'){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+var pdfFileObj = null;
+var catalogEntries = [];     // {item_no: string|null, family: string, content: string}
+var itemIndex = {};          // normalized item_no -> [entries]
+var familyIndex = {};        // normalized family name -> [entries with item_no null]
+var mergedForFileData = [];  // clean rows: Part Number/Brand/Product Type/Key Specs/Additional Info 1-3
+var mergedPreviewRows = [];  // same rows plus a "matched" flag, for the on-screen table
+
+function udragPdf(e,on){e.preventDefault();document.getElementById('uz-pdf').classList.toggle('drag',on);}
+function udropPdf(e){e.preventDefault();document.getElementById('uz-pdf').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadPdfFile(f);}
+function fpickPdf(e){var f=e.target.files[0];if(f)loadPdfFile(f);}
+async function loadPdfFile(f){
+  if(!/\.pdf$/i.test(f.name)){setMsg('mg1-msg','Please choose a PDF file.','error');return;}
+  pdfFileObj=f;
+  document.getElementById('uz-pdf').classList.add('loaded');
+  document.getElementById('uz-pdf-fname').textContent=f.name;
+  document.getElementById('uz-pdf-text').textContent='Reading page count...';
+  setMsg('mg1-msg','','');
+  var hint=document.getElementById('mg-pagerange-hint');
+  try{
+    if(typeof pdfjsLib!=='undefined'){
+      var buf=await readFileAsArrayBuffer(f);
+      var pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      document.getElementById('uz-pdf-text').textContent='Catalog loaded';
+      if(hint)hint.textContent=pdf.numPages+' page(s) detected. Leave blank to process all, or enter a range like "1-10" or "18-22,25".';
+    } else {
+      document.getElementById('uz-pdf-text').textContent='Catalog loaded';
+    }
+  }catch(e){
+    document.getElementById('uz-pdf-text').textContent='Catalog loaded';
+    if(hint)hint.textContent='Could not read page count ('+e.message+'). Leave the range blank to process all pages.';
+  }
+}
+
+// "1-10", "18-22,25", "3" etc. Returns a Set of page numbers, or null to mean
+// "no range specified - process every page".
+function parsePageRange(str,maxPages){
+  str=(str||'').trim();
+  if(!str)return null;
+  var pages=new Set();
+  str.split(',').forEach(function(part){
+    part=part.trim();
+    if(!part)return;
+    var m=part.match(/^(\d+)\s*-\s*(\d+)$/);
+    if(m){
+      var a=parseInt(m[1],10),b=parseInt(m[2],10);
+      for(var i=Math.min(a,b);i<=Math.max(a,b);i++)if(i>=1&&i<=maxPages)pages.add(i);
+    }else{
+      var n=parseInt(part,10);
+      if(!isNaN(n)&&n>=1&&n<=maxPages)pages.add(n);
+    }
+  });
+  return pages.size?pages:null;
+}
+
+function readFileAsArrayBuffer(f){
+  return new Promise(function(resolve,reject){
+    var r=new FileReader();
+    r.onload=function(e){resolve(e.target.result);};
+    r.onerror=function(){reject(new Error('Could not read PDF file.'));};
+    r.readAsArrayBuffer(f);
+  });
+}
+
+function parseJsonLoose(s){
+  var t=String(s||'').replace(/```json|```/g,'').trim();
+  var m=t.match(/\[[\s\S]*\]/);
+  if(m)t=m[0];
+  try{
+    return JSON.parse(t);
+  }catch(e){
+    // A dense catalog page (lots of items) can produce a response that gets
+    // cut off mid-array at the token cap, which breaks JSON.parse on the
+    // whole thing. Salvage whatever complete {...} objects are still
+    // there instead of throwing the entire chunk's extraction away.
+    var objs=t.match(/\{[^{}]*\}/g);
+    if(!objs)return null;
+    var out=[];
+    objs.forEach(function(o){try{out.push(JSON.parse(o));}catch(e2){}});
+    return out.length?out:null;
+  }
+}
+
+// pdf.js's getTextContent() returns every text fragment in whatever order
+// they appear in the PDF's internal content stream - which for a table is
+// very often NOT reading order. In this catalog, naively joining item.str in
+// that order clumps every Item Number together, then every spec value
+// together, then every description together, completely losing which item
+// goes with which description (this was confirmed against the real file:
+// with the naive join, all 20 item numbers on a page end up in one run and
+// all their descriptions in a separate run, with nothing to tie them
+// together). This reconstructs rough visual rows instead: group text
+// fragments by y-position (their vertical position on the page), sort each
+// row left-to-right, and join rows with newlines - much closer to how the
+// table actually reads.
+function layoutPageText(textContent){
+  var items=textContent.items.map(function(it){
+    return{str:it.str,x:it.transform[4],y:it.transform[5]};
+  }).filter(function(it){return it.str.trim()!=='';});
+  if(!items.length)return'';
+  items.sort(function(a,b){return b.y-a.y||a.x-b.x;});
+  var lines=[];
+  var TOL=2;
+  items.forEach(function(it){
+    var line=null;
+    for(var i=0;i<lines.length;i++){if(Math.abs(lines[i].y-it.y)<=TOL){line=lines[i];break;}}
+    if(!line){line={y:it.y,items:[]};lines.push(line);}
+    line.items.push(it);
+  });
+  lines.sort(function(a,b){return b.y-a.y;});
+  return lines.map(function(l){
+    return l.items.sort(function(a,b){return a.x-b.x;}).map(function(it){return it.str;}).join(' ');
+  }).join('\n');
+}
+
+function buildExtractPrompt(chunkText){
+  return 'You are extracting structured data from pages of a manufacturer product catalog PDF, for an e-commerce data pipeline.\n\n'+
+  'The text below was reconstructed line-by-line from the PDF\'s visual layout (top to bottom, left to right within each line) so it roughly reads like the original table, but it is NOT perfect: a description that wraps onto two lines in the original may appear as two separate lines here, and a single description sometimes applies to two or three item numbers listed together (a merged cell in the original table). Page numbers are marked "--- PAGE N ---". Content may include tables of items with an Item Number/Item No./SKU/Model/Code column, dimensional or technical specs, a "Recommended Uses" or similar column of per-item notes, and marketing copy like "Applications" or "Features & Benefits" describing a whole product line rather than one item.\n\n'+
+  'Extract every distinct catalog entry as JSON objects with this shape:\n'+
+  '{"item_no": "<the item/SKU/model code exactly as printed, or null if this entry describes a whole product line rather than one item>", "family": "<the product line or category name this belongs to - e.g. a table heading or section title>", "content": "<descriptive text tied to this entry: recommended uses, applications, features, benefits, notes>"}\n\n'+
+  'RULES:\n'+
+  '- One object per item number found in a table. Use physical proximity in the reconstructed layout to match each item number to its nearest description text - the description for an item is usually on the same line or the line(s) immediately following it, before the next item number appears.\n'+
+  '- If one description clearly applies to multiple item numbers listed together (e.g. they share one merged description cell), give each of those item numbers its own object with the same content text - do not skip any of them.\n'+
+  '- Separately, one object per product-line-level description block (Applications, Features & Benefits, general intro paragraphs) with item_no set to null.\n'+
+  '- Skip pages with no useful catalog content (covers, table of contents, pure photos, safety warnings, ordering instructions, contact info).\n'+
+  '- Do not invent or guess content that is not present in the text below. If you truly cannot tell which description belongs to an item number, still record the item_no with an empty content string rather than omitting it.\n'+
+  '- Keep each "content" value concise (under 40 words) - a page with many items needs many short entries, not a few long ones, so the response fits.\n'+
+  '- Respond with ONLY a JSON array. No markdown, no explanation, no code fences.\n\n'+
+  'PAGE TEXT:\n'+chunkText;
+}
+
+function buildCatalogIndices(){
+  itemIndex={};familyIndex={};
+  catalogEntries.forEach(function(e){
+    if(e.item_no){
+      var key=e.item_no.toUpperCase();
+      if(!itemIndex[key])itemIndex[key]=[];
+      itemIndex[key].push(e);
+    } else if(e.family){
+      var fkey=e.family.toLowerCase();
+      if(!familyIndex[fkey])familyIndex[fkey]=[];
+      familyIndex[fkey].push(e);
+    }
+  });
+}
+
+function lookupCatalogItem(raw){
+  if(!raw)return null;
+  var key=String(raw).toUpperCase();
+  if(itemIndex[key])return itemIndex[key];
+  var keys=Object.keys(itemIndex);
+  for(var i=0;i<keys.length;i++){
+    if(keys[i]===key)continue;
+    if(keys[i].indexOf(key)===0||key.indexOf(keys[i])===0)return itemIndex[keys[i]];
+  }
+  return null;
+}
+
+// Deliberately conservative: only a (near-)full substring match counts. A
+// looser "shares one significant word" match sounds appealing but in this
+// industry almost every section title contains words like "blades", "saw"
+// or "cutting" - a loose match would silently attach one family's copy to
+// unrelated products, which is worse than leaving a row unmatched.
+function fuzzyFamilyMatch(sectionText){
+  if(!sectionText)return null;
+  var s=String(sectionText).toLowerCase();
+  if(s.length<6)return null;
+  var keys=Object.keys(familyIndex);
+  for(var i=0;i<keys.length;i++){
+    if(keys[i].length<6)continue;
+    if(s.indexOf(keys[i])!==-1||keys[i].indexOf(s)!==-1)return keys[i];
+  }
+  return null;
+}
+
+function renderCatalogPreview(){
+  document.getElementById('mg1-res').classList.add('on');
+  var tbody=document.getElementById('mg1-tbody');
+  if(!catalogEntries.length){
+    tbody.innerHTML='<tr><td colspan="3" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No entries yet.</td></tr>';
+    document.getElementById('mg1-meta').textContent='0 entries';
+    return;
+  }
+  var show=catalogEntries.slice(0,300);
+  var rows='';
+  for(var i=0;i<show.length;i++){
+    var e=show[i];
+    rows+='<tr><td class="td-pn">'+esc(e.item_no||'—')+'</td><td class="td-main">'+esc(e.family||'')+'</td><td class="td-main">'+esc((e.content||'').slice(0,220))+((e.content||'').length>220?'…':'')+'</td></tr>';
+  }
+  tbody.innerHTML=rows;
+  var moreNote=catalogEntries.length>300?' (showing first 300)':'';
+  document.getElementById('mg1-meta').textContent=catalogEntries.length+' entries'+moreNote;
+}
+
+async function extractCatalog(){
+  setMsg('mg1-msg','','');
+  if(!pdfFileObj){setMsg('mg1-msg','Please upload a catalog PDF first.','error');return;}
+  if(!getKey()){setMsg('mg1-msg','Please save your API key at the top of the page first.','error');return;}
+  if(typeof pdfjsLib==='undefined'){setMsg('mg1-msg','PDF reader library failed to load. Check your connection and reload the page.','error');return;}
+
+  catalogEntries=[];itemIndex={};familyIndex={};
+  renderCatalogPreview();
+  var btn=document.getElementById('mg1-gen');
+  btn.disabled=true;stops.mg1=false;showStop('mg1',true);
+
+  try{
+    var buf=await readFileAsArrayBuffer(pdfFileObj);
+    var pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    var numPages=pdf.numPages;
+    var pageRange=parsePageRange(document.getElementById('mg-pagerange').value,numPages);
+    var pagesToRead=pageRange?Array.from(pageRange).sort(function(a,b){return a-b;}):Array.from({length:numPages},function(_,i){return i+1;});
+
+    var pageTexts={}; // page number -> text
+    for(var pi=0;pi<pagesToRead.length;pi++){
+      var pNum=pagesToRead[pi];
+      setProg('mg1',Math.round((pi/pagesToRead.length)*40),'Reading page '+pNum+' ('+(pi+1)+' of '+pagesToRead.length+' selected)');
+      var page=await pdf.getPage(pNum);
+      var tc=await page.getTextContent();
+      pageTexts[pNum]=layoutPageText(tc);
+    }
+
+    var CHUNK=3;
+    for(var c=0;c<pagesToRead.length;c+=CHUNK){
+      if(stops.mg1){
+        setMsg('mg1-msg','Stopped. '+catalogEntries.length+' entries extracted so far - you can merge with what was found, or run again to redo from the start.','warn');
+        break;
+      }
+      var chunkPages=pagesToRead.slice(c,c+CHUNK);
+      var chunkText='';
+      chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+pageTexts[pn];});
+      var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
+      setProg('mg1',40+Math.round((c/pagesToRead.length)*55),'Extracting pages '+rangeLabel+' ('+Math.min(c+CHUNK,pagesToRead.length)+' of '+pagesToRead.length+' selected)');
+      document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+' / '+pagesToRead.length+' selected';
+      try{
+        var resp=await apiCallRetry(buildExtractPrompt(chunkText),4000);
+        var parsed=parseJsonLoose(resp);
+        if(Array.isArray(parsed)){
+          parsed.forEach(function(e){
+            if(!e||typeof e!=='object')return;
+            var itemNo=e.item_no?String(e.item_no).trim():null;
+            var family=e.family?String(e.family).trim():'';
+            var content=e.content?String(e.content).trim():'';
+            if(!family&&!itemNo)return;
+            catalogEntries.push({item_no:itemNo,family:family,content:content});
+          });
+        }
+      }catch(chunkErr){
+        catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message});
+      }
+      renderCatalogPreview();
+    }
+
+    buildCatalogIndices();
+    setProg('mg1',100,'');
+    setTimeout(function(){setProg('mg1',0,'');},400);
+    if(!stops.mg1){
+      var famOnly=catalogEntries.filter(function(e){return!e.item_no;}).length;
+      var pageNote=pageRange?' from '+pagesToRead.length+' selected page(s) of '+numPages:' from all '+numPages+' pages';
+      setMsg('mg1-msg',catalogEntries.length+' catalog entries extracted'+pageNote+' ('+(catalogEntries.length-famOnly)+' tied to an item number, '+famOnly+' product-line-level). Now run Step 2 to merge with your spec sheet.','success');
+    }
+  }catch(err){
+    var extra=/worker/i.test(err.message)?' This looks like the PDF reader failed to set up in whatever window this page is running in. If you\'re viewing this inside an embedded preview, try opening the actual deployed page (your GitHub Pages URL) in a normal browser tab instead.':'';
+    setMsg('mg1-msg','Failed to read/extract catalog: '+err.message+extra,'error');
+    setProg('mg1',0,'');
+  }
+
+  btn.disabled=false;
+  document.getElementById('mg1-lbl').textContent='1. Extract Catalog Content';
+  showStop('mg1',false);
+  renderCatalogPreview();
+}
+
+function buildKeySpecs(row,itemCol,boilerplateCols){
+  var parts=[];
+  Object.keys(row).forEach(function(k){
+    if(itemCol&&k===itemCol)return;
+    if(k==='Section')return; // already surfaced via Product Type
+    if(/note|info|catalog|comment/i.test(k))return;
+    if(boilerplateCols&&boilerplateCols[k])return;
+    var v=row[k];
+    if(v===undefined||v===null)return;
+    var vs=String(v).trim();
+    if(!vs)return;
+    parts.push(k+': '+vs);
+  });
+  return parts.join(', ');
+}
+
+function renderMergePreview(){
+  document.getElementById('mg2-res').classList.add('on');
+  var tbody=document.getElementById('mg2-tbody');
+  if(!mergedPreviewRows.length){
+    tbody.innerHTML='<tr><td colspan="5" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No merged rows yet.</td></tr>';
+    document.getElementById('mg2-meta').textContent='0 rows';
+    return;
+  }
+  var show=mergedPreviewRows.slice(0,300);
+  var rows='';
+  for(var i=0;i<show.length;i++){
+    var r=show[i];
+    var m=r.matched?'<span style="color:var(--ok);font-weight:bold;">Yes</span>':'<span style="color:var(--err);font-weight:bold;">No</span>';
+    rows+='<tr><td class="td-pn">'+esc(r.partNumber)+'</td><td>'+m+'</td><td class="td-main">'+esc(r.productType)+'</td><td class="td-main">'+esc((r.keySpecs||'').slice(0,90))+'</td><td class="td-main">'+esc((r.ai1||'').slice(0,110))+'</td></tr>';
+  }
+  tbody.innerHTML=rows;
+  var moreNote=mergedPreviewRows.length>300?' (showing first 300)':'';
+  document.getElementById('mg2-meta').textContent=mergedPreviewRows.length+' row(s)'+moreNote;
+}
+
+// If the user leaves the Item/Part Number column field blank, try to find it
+// automatically instead of silently failing. getPN() (used by the rest of the
+// app) only matches a handful of exact template header names like "Part
+// Number"/"SKU"/"Model" - real manufacturer sheets are just as often headed
+// "Item - QTY", "Item No.", "Catalog #", etc. This checks common patterns
+// first, then falls back to any column whose name simply contains one of
+// those words.
+function guessItemColumn(sampleRow){
+  if(!sampleRow)return null;
+  var keys=Object.keys(sampleRow);
+  var patterns=[/^item\s*-?\s*qty$/i,/^item\s*(no\.?|number|#)$/i,/^part\s*number$/i,/^sku$/i,/^model$/i,/^catalog\s*#$/i,/^code$/i];
+  for(var p=0;p<patterns.length;p++){
+    for(var i=0;i<keys.length;i++)if(patterns[p].test(keys[i].trim()))return keys[i];
+  }
+  var loose=['item','part','sku','model','code'];
+  for(var l=0;l<loose.length;l++){
+    for(var i2=0;i2<keys.length;i2++)if(keys[i2].toLowerCase().indexOf(loose[l])!==-1)return keys[i2];
+  }
+  return null;
+}
+
+// A column counts as "boilerplate" (excluded from Key Specs) when it repeats
+// the same one or two long values across many rows - e.g. a pointer note like
+// "Additional Information In the catalog" that a manufacturer sheet repeats
+// on every row. Real spec columns (Length, Recommended Uses, etc.) vary a lot
+// row to row even when individual values are long, so they're kept.
+function detectBoilerplateColumns(rows){
+  var info={};
+  rows.forEach(function(row){
+    Object.keys(row).forEach(function(k){
+      var v=row[k];
+      if(v===undefined||v===null)return;
+      var vs=String(v).trim();
+      if(!vs)return;
+      if(!info[k])info[k]={distinct:new Set(),count:0};
+      info[k].distinct.add(vs);
+      info[k].count++;
+    });
+  });
+  var boilerplate={};
+  Object.keys(info).forEach(function(k){
+    var d=info[k];
+    if(d.count>=5&&d.distinct.size<=2){
+      var sample=Array.from(d.distinct)[0];
+      if(sample&&sample.length>25)boilerplate[k]=true;
+    }
+  });
+  return boilerplate;
+}
+
+function mergeData(){
+  setMsg('mg2-msg','','');
+  if(!fileData||!fileData.length){setMsg('mg2-msg','Upload your manufacturer spec sheet in the box at the top of the page first - or, if you only have a PDF catalog and no spec sheet, use "Build Rows From Catalog Only" above instead.','error');return;}
+
+  var brand=document.getElementById('mg-brand').value.trim();
+  var itemColInput=document.getElementById('mg-itemcol').value.trim();
+  var detectedCol=itemColInput||guessItemColumn(fileData[0])||'';
+  var stripSuffix=document.getElementById('mg-strip').checked;
+  var boilerplateCols=detectBoilerplateColumns(fileData);
+
+  mergedForFileData=[];mergedPreviewRows=[];
+  var matchedCount=0;
+
+  fileData.forEach(function(row){
+    var rawVal=String(detectedCol?(row[detectedCol]||''):(getPN(row)||'')).trim();
+    var base=stripSuffix?rawVal.replace(/-\d+$/,''):rawVal;
+    var matches=lookupCatalogItem(base)||(base!==rawVal?lookupCatalogItem(rawVal):null);
+    var itemContent='',family='',matched=false;
+    if(matches&&matches.length){
+      family=matches[0].family||'';
+      itemContent=matches.map(function(m){return m.content;}).filter(Boolean).join(' ');
+      matched=true;
+    }
+    var familyExtra='';
+    if(family&&familyIndex[family.toLowerCase()]){
+      familyExtra=familyIndex[family.toLowerCase()].map(function(m){return m.content;}).filter(Boolean).join(' ');
+    }
+    // No direct item-number hit: fall back to matching this row's detected
+    // "Section" (from a multi-family sheet) against family-level catalog
+    // copy, so items without their own catalog row still pick up the
+    // product line's general Applications/Features text.
+    if(!matched&&row['Section']){
+      var famKey=fuzzyFamilyMatch(row['Section']);
+      if(famKey){
+        family=familyIndex[famKey][0].family||row['Section'];
+        familyExtra=familyIndex[famKey].map(function(m){return m.content;}).filter(Boolean).join(' ');
+        matched=true;
+      }
+    }
+    if(matched)matchedCount++;
+    var keySpecs=buildKeySpecs(row,detectedCol||null,boilerplateCols);
+    var productTypeFallback=catalogEntries.length?'Unmatched - needs review':(row['Section']||'Unclassified');
+    var clean={
+      'Part Number':rawVal,
+      'Brand':brand,
+      'Product Type':family||productTypeFallback,
+      'Key Specs':keySpecs,
+      'Additional Info 1':itemContent,
+      'Additional Info 2':familyExtra,
+      'Additional Info 3':''
+    };
+    mergedForFileData.push(clean);
+    mergedPreviewRows.push({partNumber:rawVal,matched:matched,productType:clean['Product Type'],keySpecs:keySpecs,ai1:itemContent||familyExtra});
+  });
+
+  renderMergePreview();
+  var pct=fileData.length?Math.round(matchedCount/fileData.length*100):0;
+  var colNote=' Item column used: "'+(detectedCol||'(none found)')+'"'+(itemColInput?' (you specified this)':' (auto-detected)')+'.';
+  if(!catalogEntries.length){
+    setMsg('mg2-msg','No catalog was extracted, so rows were cleaned up (multi-section sheet flattened, Key Specs built) without catalog enrichment.'+colNote,'warn');
+  } else if(matchedCount===0){
+    var sampleRaw=mergedPreviewRows.slice(0,3).map(function(r){return r.partNumber;}).filter(Boolean).join(', ')||'(all blank)';
+    var sampleKeys=Object.keys(itemIndex).slice(0,5).join(', ')||'(none extracted)';
+    setMsg('mg2-msg','0 of '+fileData.length+' rows matched.'+colNote+' Example values read from that column: '+sampleRaw+'. Example item numbers found in the catalog: '+sampleKeys+'. If the column name looks wrong, type the exact header from your sheet into the "Item/Part Number column" field above and merge again.','error');
+  } else {
+    setMsg('mg2-msg',matchedCount+' of '+fileData.length+' rows ('+pct+'%) matched to catalog content.'+colNote+' Unmatched rows are still included using whatever was in the spec sheet - review those before generating listings for them.',matchedCount===fileData.length?'success':'warn');
+  }
+}
+
+function buildRowsFromCatalogOnly(){
+  if(!catalogEntries.length){alert('Run Step 1 (Extract Catalog Content) first.');return;}
+  var brand=document.getElementById('mg-brand').value.trim();
+  var seen={};
+  mergedForFileData=[];mergedPreviewRows=[];
+  catalogEntries.forEach(function(e){
+    if(!e.item_no)return; // family-level blurbs alone aren't a sellable row
+    var key=e.item_no.toUpperCase();
+    if(seen[key])return;
+    seen[key]=true;
+    var familyExtra='';
+    if(e.family&&familyIndex[e.family.toLowerCase()]){
+      familyExtra=familyIndex[e.family.toLowerCase()].map(function(m){return m.content;}).filter(Boolean).join(' ');
+    }
+    var clean={
+      'Part Number':e.item_no,
+      'Brand':brand,
+      'Product Type':e.family||'Unclassified',
+      'Key Specs':'',
+      'Additional Info 1':e.content||'',
+      'Additional Info 2':familyExtra,
+      'Additional Info 3':''
+    };
+    mergedForFileData.push(clean);
+    mergedPreviewRows.push({partNumber:e.item_no,matched:true,productType:clean['Product Type'],keySpecs:'',ai1:e.content||familyExtra});
+  });
+  renderMergePreview();
+  setMsg('mg2-msg',mergedForFileData.length+' product row(s) built directly from the catalog (no spec sheet used). These have no dimensional Key Specs since that data usually lives in the spec sheet, not the catalog text - review before generating listings.','success');
+}
+
+function useMergedData(){
+  if(!mergedForFileData.length){alert('Run the merge first.');return;}
+  fileData=mergedForFileData;
+  results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  runState={t1:{resumeFrom:null},t2:{resumeFrom:null},t3:{resumeFrom:null},t4:{resumeFrom:null}};
+  ['t1','t2','t3','t4'].forEach(function(t){var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');showResume(t,false);});
+  var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
+  document.getElementById('uz').classList.add('loaded');
+  document.getElementById('uz-fname').textContent='Merged from catalog - '+fileData.length+' row(s)';
+  document.getElementById('uz-text').textContent='File loaded';
+  document.getElementById('file-status').textContent='Columns: '+Object.keys(fileData[0]).join(', ');
+  updateConsolGrid();
+  var btns=document.querySelectorAll('.tab-nav button');
+  switchTab(1,btns[1]);
+}
+
+function downloadCatalogIndex(){
+  if(!catalogEntries.length){alert('No catalog data extracted yet.');return;}
+  var rows=[['Item No.','Product Family','Extracted Content']];
+  catalogEntries.forEach(function(e){rows.push([e.item_no||'',e.family||'',e.content||'']);});
+  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:14},{wch:36},{wch:90}];
+  XLSX.utils.book_append_sheet(wb2,ws,'Catalog Extract');XLSX.writeFile(wb2,'catalog-extract.xlsx');
+}
+
+function downloadMergedXLSX(){
+  if(!mergedForFileData.length){alert('No merged data yet.');return;}
+  var headers=['Part Number','Brand','Product Type','Key Specs','Additional Info 1','Additional Info 2','Additional Info 3'];
+  var rows=[headers];
+  mergedForFileData.forEach(function(r){rows.push(headers.map(function(h){return r[h]||'';}));});
+  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:18},{wch:18},{wch:26},{wch:50},{wch:50},{wch:50},{wch:30}];
+  XLSX.utils.book_append_sheet(wb2,ws,'Merged Data');XLSX.writeFile(wb2,'merged-catalog-data.xlsx');
 }
 </script>
 </body>
