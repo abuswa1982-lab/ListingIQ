@@ -170,6 +170,10 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       </div>
     </div>
     <div class="file-status" id="file-status"></div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+      <input type="checkbox" id="reuse-variants" checked style="width:auto;">
+      <label for="reuse-variants" style="margin:0;">Reuse content for pack-size variants (applies to Product Name, Highlights, Description, HTML Table) — e.g. <code>40610-5</code> and <code>40610-50</code> are treated as the same product in different pack quantities, so content is generated once and copied to every matching variant instead of being regenerated from scratch.</label>
+    </div>
   </div>
 
   <div class="tabs-wrap">
@@ -360,7 +364,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 
     <div class="tab-panel" id="tab-5">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file. Structured Data (schema.org JSON-LD, for search engines to read) is built automatically from your merged data with no AI call and no generate step needed - it's always included here.</p>
         <div class="consol-grid" id="consol-grid"></div>
         <div class="msg" id="t5-msg"></div>
         <button class="btn btn-gold" onclick="runConsolidate()">Export Consolidated Excel</button>
@@ -374,7 +378,15 @@ var fileData = null;
 var stops = {t1:false,t2:false,t3:false,t4:false};
 var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
 // resumeFrom is the row index where a run stopped (failure or user-stop). null = no pending resume.
-var runState = {t1:{resumeFrom:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
+var runState = {t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
+
+// Applied to every content-generation prompt (titles, highlights, meta
+// descriptions - anywhere the AI is asked to state a fact about the
+// product). Every attribute/claim must trace back to the PRODUCT DATA
+// actually provided (which itself comes only from the uploaded spec sheet
+// and/or catalog) - nothing invented, nothing filled in from the model's
+// general knowledge of the product category.
+var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.';
 
 var CH = {
   amazon:{label:'Amazon',pill:'p-amz',max:200,target:185,
@@ -382,10 +394,14 @@ var CH = {
   ebay:{label:'eBay',pill:'p-eby',max:80,target:78,
     rule:'eBay title: MUST start with [Brand] [Part Number]. Then product type and key specs. Hard limit 80 characters. Target 75-80. Use every character.'},
   website:{label:'Website/SEO',pill:'p-web',max:70,target:65,
-    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. Then product type and primary keyword. Natural language. Target 60-70 characters.'}
+    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. Immediately after that, front-load the single most important, most-searched-for attribute (primary product type plus the one spec buyers search on most - e.g. size, material, or use-case), since Google may truncate the visible title in search results and the important part must survive that. Put secondary, less critical details LAST, since those are the characters most likely to get cut off. Target 60-70 characters, hard max 70. Natural language, no keyword stuffing (each meaningful word appears once).'}
 };
 
 var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
+
+function buildTitlePrompt(chConfig,brand,pn,row){
+  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
+}
 
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
@@ -394,7 +410,7 @@ window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
   fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
-  runState={t1:{resumeFrom:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
+  runState={t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
   document.getElementById('uz').classList.remove('loaded');
   document.getElementById('uz-fname').textContent='';
   document.getElementById('uz-text').textContent='Drop Excel or CSV here, or click to browse';
@@ -506,7 +522,7 @@ function loadFile(f){
       if(!data.length){document.getElementById('file-status').textContent='File appears empty.';return;}
       fileData=data;
       // Loading a new file clears any pending resume state
-      runState={t1:{resumeFrom:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
+      runState={t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
       ['t1','t2','t3','t4'].forEach(function(t){showResume(t,false);});
       document.getElementById('uz').classList.add('loaded');
       document.getElementById('uz-fname').textContent=f.name+' - '+data.length+' row(s)';
@@ -536,6 +552,114 @@ function setProg(t,pct,lbl){
 
 function getPN(row){return row['Part Number']||row['part number']||row['PartNumber']||row['part_number']||row['SKU']||row['sku']||row['Model']||'';}
 function getBrand(row,ov){return ov||row['Brand']||row['brand']||row['Manufacturer']||row['manufacturer']||row['MFR']||'';}
+
+// Pack-size variant grouping: "40610-5" and "40610-50" are the same physical
+// product in different pack quantities, so they should get identical
+// generated content rather than independently-drifting AI output.
+function baseItemKey(pn){
+  var s=String(pn||'').trim().toUpperCase();
+  if(!s)return'';
+  return s.replace(/-\d+$/,'');
+}
+function reuseVariantsOn(){
+  var el=document.getElementById('reuse-variants');
+  return !el||el.checked;
+}
+// Builds a base-item-key -> first-matching-entry lookup from an in-progress
+// results array, so later rows in the same run can reuse earlier output
+// instead of calling the API again. Works for both fresh runs (list starts
+// empty) and resumed runs (list already has completed rows).
+function buildVariantCache(list){
+  var cache={};
+  for(var j=0;j<list.length;j++){
+    var key=baseItemKey(list[j].partNumber);
+    if(key&&!(key in cache))cache[key]=list[j];
+  }
+  return cache;
+}
+// Swaps every occurrence of the old part number in a title for the new one
+// (pack-size siblings share the same title text apart from the part number
+// and, occasionally, its length), then re-applies the channel's char limit.
+function swapPNInTitle(title,oldPN,newPN,max){
+  if(!title)return title;
+  var t=title;
+  if(oldPN&&t.indexOf(oldPN)!==-1)t=t.split(oldPN).join(newPN);
+  return enforceLimit(t,max);
+}
+
+// ---- Structured data (schema.org Product/ProductGroup JSON-LD) ----
+// Built ENTIRELY from fields already present in the merged row - no AI call,
+// no invented facts. Key Specs is always written by buildKeySpecs() as
+// "Label: value, Label: value, ..." so it can be split back into individual
+// attributes reliably. The split regex only breaks on a comma that's
+// followed by a "label:" pattern, so a value that itself contains a comma
+// (e.g. "Recommended Uses: For decking, roofing, and metals.") stays intact.
+function parseKeySpecsToProps(keySpecsStr){
+  if(!keySpecsStr)return[];
+  var parts=String(keySpecsStr).split(/,\s*(?=[^,:]+:)/);
+  var out=[];
+  parts.forEach(function(p){
+    var idx=p.indexOf(':');
+    if(idx<=0)return;
+    var label=p.slice(0,idx).trim();
+    var value=p.slice(idx+1).trim();
+    if(!label||!value)return;
+    if(/^column\s*\d*$/i.test(label))return; // leftover spreadsheet artifact, not a real spec
+    out.push({'@type':'PropertyValue',name:label,value:value});
+  });
+  return out;
+}
+
+// siblingSkus: every part number sharing this item's base key (from the
+// WHOLE sheet, not just rows processed so far), used to link pack-size
+// variants together under a shared ProductGroup. Note: Google's ProductGroup
+// "variesBy" property only recognizes color/size/material/pattern/
+// suggestedAge/suggestedGender - there is no recognized value for pack
+// quantity, so it's deliberately left out rather than mislabeled as "size".
+// The variant relationship is still expressed correctly via hasVariant/
+// isVariantOf and each variant's own "Pack Quantity" additionalProperty.
+function buildProductJsonLd(row,siblingSkus){
+  var pn=getPN(row)||'';
+  var brand=getBrand(row,'');
+  var productType=row['Product Type']||row['product type']||'';
+  var name=[brand,pn,productType].filter(function(s){return s&&String(s).trim();}).join(' ').trim();
+  var descSource=row['Additional Info 1']||row['additional info 1']||row['Additional Info']||row['additional info']||'';
+  var keySpecsRaw=row['Key Specs']||row['key specs']||row['specs']||'';
+  var additionalProperty=parseKeySpecsToProps(keySpecsRaw);
+  var product={'@context':'https://schema.org/','@type':'Product'};
+  if(pn)product.sku=pn;
+  if(name)product.name=name;
+  if(brand)product.brand={'@type':'Brand',name:brand};
+  if(productType)product.category=productType;
+  if(descSource)product.description=descSource;
+  if(additionalProperty.length)product.additionalProperty=additionalProperty;
+  var bKey=baseItemKey(pn);
+  var uniqueSiblings=(siblingSkus||[]).filter(function(v,i,a){return v&&a.indexOf(v)===i;});
+  if(bKey&&uniqueSiblings.length>1){
+    product.isVariantOf={
+      '@type':'ProductGroup',
+      productGroupID:bKey,
+      hasVariant:uniqueSiblings.map(function(sku){return{'@type':'Product',sku:sku};})
+    };
+  }
+  return product;
+}
+
+// Builds a baseKey -> [every part number sharing that base, in sheet order]
+// map from the WHOLE dataset, so ProductGroup variant lists are complete
+// even for rows processed early in the run (unlike the content-reuse cache,
+// this doesn't need to build up incrementally).
+function buildFamilyGroups(rows){
+  var groups={};
+  rows.forEach(function(row){
+    var pn=getPN(row);
+    var bKey=baseItemKey(pn);
+    if(!bKey)return;
+    if(!groups[bKey])groups[bKey]=[];
+    if(groups[bKey].indexOf(pn)===-1)groups[bKey].push(pn);
+  });
+  return groups;
+}
 
 function doStop(t){
   stops[t]=true;
@@ -599,32 +723,65 @@ async function apiCall(prompt,maxTok){
   return d.content.map(function(i){return i.text||'';}).join('').trim();
 }
 
-// One auto-retry with 3-second backoff. Catches transient rate-limit and network blips
-// without forcing the user to hit Resume for every hiccup.
+// Up to 3 attempts with backoff (3s, then 6s). Catches transient rate-limit
+// and network blips without forcing the user to hit Resume for every hiccup.
+//
+// Also treats an EMPTY (or whitespace-only) response as a failure to retry,
+// not a success. apiCall() only throws on an HTTP error status - if a
+// request technically succeeds (200 OK) but the response body has no usable
+// text (seen in real usage: mostly during sustained heavy API load, e.g.
+// running this tool alongside another tool hitting the same API key), the
+// old version silently accepted that blank string as a completed row.
+// In one real 226-row run, 134 rows (61%) came back blank this way with no
+// error shown - the run just kept going, quietly producing an empty title
+// for most of the sheet instead of stopping or retrying.
 async function apiCallRetry(prompt, maxTok){
-  try {
-    return await apiCall(prompt, maxTok);
-  } catch (err) {
-    await new Promise(function(r){setTimeout(r, 3000);});
-    return await apiCall(prompt, maxTok);
+  var lastErr=null;
+  for(var attempt=0;attempt<3;attempt++){
+    try {
+      var result=await apiCall(prompt,maxTok);
+      if(result&&result.trim()!=='')return result;
+      lastErr=new Error('The API returned an empty response (no error, but no usable text either) - usually a sign of heavy concurrent API load.');
+    } catch(err){
+      lastErr=err;
+    }
+    if(attempt<2){
+      await new Promise(function(r){setTimeout(r,3000*Math.pow(2,attempt));});
+    }
   }
+  throw lastErr;
 }
 
 // ---- TAB 1: Product Names ----
 async function runTab1(isResume){
   var err=validate();if(err){setMsg('t1-msg',err,'error');return;}
   setMsg('t1-msg','','');
-  var channel=document.getElementById('t1-channel').value;
   var brand=document.getElementById('t1-brand').value.trim();
   var btn=document.getElementById('t1-gen');
   btn.disabled=true;stops.t1=false;showStop('t1',true);showResume('t1',false);
 
   var rows=fileData;
   var startIdx;
+  var channel;
+  // Lock the output channel to whatever it was when this run STARTED, and
+  // keep using that for the whole run - including any Resume - even if the
+  // dropdown gets changed in between. Without this, changing the channel
+  // dropdown before clicking Resume silently splits one export between two
+  // different channels partway through (this happened in a real export -
+  // first several rows Amazon-length, the rest Website-length).
   if(isResume && runState.t1.resumeFrom != null){
+    channel = runState.t1.channel;
     startIdx = runState.t1.resumeFrom;
-    setMsg('t1-msg','Resuming from row '+(startIdx+1)+'...','info');
+    var domChannel = document.getElementById('t1-channel').value;
+    if(domChannel !== channel){
+      var lockedLabel = channel==='all' ? 'All three channels' : (CH[channel] ? CH[channel].label : channel);
+      setMsg('t1-msg','Resuming from row '+(startIdx+1)+' using "'+lockedLabel+'" - the channel this run started with. The dropdown shows a different channel now, but switching mid-run would mix two different title lengths in one export, so the original channel is kept for the rest of this run. Start a new Generate run (not Resume) if you actually want to switch channels.','info');
+    } else {
+      setMsg('t1-msg','Resuming from row '+(startIdx+1)+'...','info');
+    }
   } else {
+    channel = document.getElementById('t1-channel').value;
+    runState.t1.channel = channel;
     startIdx = 0;
     results.t1=[];
     runState.t1.resumeFrom = null;
@@ -634,6 +791,7 @@ async function runTab1(isResume){
   renderT1();
 
   var chs=channel==='all'?['amazon','ebay','website']:[channel];
+  var variantCache1=buildVariantCache(results.t1);
 
   for(var i=startIdx;i<rows.length;i++){
     if(stops.t1){
@@ -647,18 +805,34 @@ async function runTab1(isResume){
     try {
       var pn=getPN(rows[i]);
       var b=getBrand(rows[i],brand);
-      if(channel==='all'){
+      var bKey=baseItemKey(pn);
+      var cached1=(reuseVariantsOn()&&bKey)?variantCache1[bKey]:null;
+      if(cached1){
+        if(channel==='all'){
+          var reusedEntry={partNumber:pn,row:rows[i],titles:{},reusedFrom:cached1.partNumber};
+          for(var rci=0;rci<chs.length;rci++){
+            reusedEntry.titles[chs[rci]]=swapPNInTitle(cached1.titles[chs[rci]],cached1.partNumber,pn,CH[chs[rci]].max);
+          }
+          results.t1.push(reusedEntry);
+        } else {
+          var srcTitle=cached1.titles?(cached1.titles[channel]||cached1.title):cached1.title;
+          results.t1.push({partNumber:pn,channel:channel,title:swapPNInTitle(srcTitle,cached1.partNumber,pn,CH[channel].max),row:rows[i],reusedFrom:cached1.partNumber});
+        }
+      } else if(channel==='all'){
         var entry={partNumber:pn,row:rows[i],titles:{}};
         for(var ci=0;ci<chs.length;ci++){
-          var p='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[chs[ci]].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[chs[ci]].target+' chars (hard max '+CH[chs[ci]].max+').'+VARIANT_EXCLUSION+'\n\nRespond with title text ONLY. No quotes. No explanation.';
-          var t=await apiCallRetry(p,300);
-          entry.titles[chs[ci]]=enforceLimit(t,CH[chs[ci]].max);
+          var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i]);
+          var raw=await apiCallRetry(p,300);
+          entry.titles[chs[ci]]=enforceLimit(raw,CH[chs[ci]].max);
         }
         results.t1.push(entry);
+        if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry;
       } else {
-        var p2='You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+CH[channel].rule+'\n\nMANDATORY: Title MUST begin with: '+b+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(rows[i],null,2)+'\n\nTarget '+CH[channel].target+' chars (hard max '+CH[channel].max+').'+VARIANT_EXCLUSION+'\n\nRespond with title text ONLY. No quotes. No explanation.';
-        var t2=await apiCallRetry(p2,300);
-        results.t1.push({partNumber:pn,channel:channel,title:enforceLimit(t2,CH[channel].max),row:rows[i]});
+        var p2=buildTitlePrompt(CH[channel],b,pn,rows[i]);
+        var raw2=await apiCallRetry(p2,300);
+        var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
+        results.t1.push(entry2);
+        if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
       }
       renderT1();
     } catch (rowErr) {
@@ -708,7 +882,7 @@ function renderT1(){
   for(var i=0;i<results.t1.length;i++){
     var r=results.t1[i];
     rows+='<tr><td class="td-cb"><input type="checkbox" class="t1-chk" data-i="'+i+'" onchange="updSel()" style="cursor:pointer"></td>';
-    rows+='<td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+'</td>';
+    rows+='<td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+(r.reusedFrom?'<br><span class="uz-sub" style="font-size:9px;">&#9851; same as '+esc(r.reusedFrom)+'</span>':'')+'</td>';
     if(isAll){
       var chs=['amazon','ebay','website'];
       for(var ci=0;ci<chs.length;ci++){
@@ -782,6 +956,7 @@ async function runTab2(isResume){
 
   document.getElementById('t2-res').classList.add('on');
   renderTab('t2',results.t2);
+  var variantCache2=buildVariantCache(results.t2);
 
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t2){
@@ -794,10 +969,18 @@ async function runTab2(isResume){
     document.getElementById('t2-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
     try {
       var row=fileData[i];var pn=getPN(row);
-      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
-      var rhtml=await apiCallRetry(prompt,600);
-      rhtml=rhtml.replace(/```html|```/g,'').trim();
-      results.t2.push({partNumber:pn,html:rhtml,row:row});
+      var bKey2=baseItemKey(pn);
+      var cached2=(reuseVariantsOn()&&bKey2)?variantCache2[bKey2]:null;
+      if(cached2){
+        results.t2.push({partNumber:pn,html:cached2.html,row:row,reusedFrom:cached2.partNumber});
+      } else {
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
+        var rhtml=await apiCallRetry(prompt,600);
+        rhtml=rhtml.replace(/```html|```/g,'').trim();
+        var entry2={partNumber:pn,html:rhtml,row:row};
+        results.t2.push(entry2);
+        if(bKey2&&!(bKey2 in variantCache2))variantCache2[bKey2]=entry2;
+      }
       renderTab('t2',results.t2);
     } catch (rowErr) {
       runState.t2.resumeFrom = i;
@@ -845,6 +1028,7 @@ async function runTab3(isResume){
 
   document.getElementById('t3-res').classList.add('on');
   renderTab('t3',results.t3);
+  var variantCache3=buildVariantCache(results.t3);
 
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t3){
@@ -857,15 +1041,23 @@ async function runTab3(isResume){
     document.getElementById('t3-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
     try {
       var row=fileData[i];var pn=getPN(row);
-      var ai1=row['Additional Info 1']||row['additional info 1']||row['Additional Info']||row['additional info']||'';
-      var ai2=row['Additional Info 2']||row['additional info 2']||'';
-      var ai3=row['Additional Info 3']||row['additional info 3']||'';
-      var rawDesc=[ai1,ai2,ai3].filter(function(s){return s&&s.trim();}).join(' ');
-      if(!rawDesc)rawDesc=row['Key Specs']||row['key specs']||row['specs']||JSON.stringify(row);
-      var prompt='You are an HTML formatter for product listings.\n\nYour ONLY job is to convert the raw description text below into clean HTML.\n\nSTRICT RULES:\n- Preserve EVERY word exactly as written. Do not add, remove, reword, summarize, or rephrase anything.\n- Do not make assumptions. Do not improve the copy. Do not remove marketing language.\n- Convert the existing structure to HTML only:\n  * Paragraphs become <p> tags\n  * Bullet lists become <ul><li> items\n  * Section headers like Features: or Instructions: become <p><strong>Header:</strong></p>\n  * Bold or emphasized words use <strong> tags\n- Output valid HTML only. No preamble, no explanation, no markdown, no extra tags outside the content.\n- The words in your output must be identical to the words in the input.\n\nRAW DESCRIPTION:\n'+rawDesc+'\n\nReturn the HTML-formatted version of this text with zero content changes.';
-      var rhtml=await apiCallRetry(prompt,800);
-      rhtml=rhtml.replace(/```html|```/g,'').trim();
-      results.t3.push({partNumber:pn,html:rhtml,row:row});
+      var bKey3=baseItemKey(pn);
+      var cached3=(reuseVariantsOn()&&bKey3)?variantCache3[bKey3]:null;
+      if(cached3){
+        results.t3.push({partNumber:pn,html:cached3.html,row:row,reusedFrom:cached3.partNumber});
+      } else {
+        var ai1=row['Additional Info 1']||row['additional info 1']||row['Additional Info']||row['additional info']||'';
+        var ai2=row['Additional Info 2']||row['additional info 2']||'';
+        var ai3=row['Additional Info 3']||row['additional info 3']||'';
+        var rawDesc=[ai1,ai2,ai3].filter(function(s){return s&&s.trim();}).join(' ');
+        if(!rawDesc)rawDesc=row['Key Specs']||row['key specs']||row['specs']||JSON.stringify(row);
+        var prompt='You are an HTML formatter for product listings.\n\nYour ONLY job is to convert the raw description text below into clean HTML.\n\nSTRICT RULES:\n- Preserve EVERY word exactly as written. Do not add, remove, reword, summarize, or rephrase anything.\n- Do not make assumptions. Do not improve the copy. Do not remove marketing language.\n- Convert the existing structure to HTML only:\n  * Paragraphs become <p> tags\n  * Bullet lists become <ul><li> items\n  * Section headers like Features: or Instructions: become <p><strong>Header:</strong></p>\n  * Bold or emphasized words use <strong> tags\n- Output valid HTML only. No preamble, no explanation, no markdown, no extra tags outside the content.\n- The words in your output must be identical to the words in the input.\n\nRAW DESCRIPTION:\n'+rawDesc+'\n\nReturn the HTML-formatted version of this text with zero content changes.';
+        var rhtml=await apiCallRetry(prompt,800);
+        rhtml=rhtml.replace(/```html|```/g,'').trim();
+        var entry3={partNumber:pn,html:rhtml,row:row};
+        results.t3.push(entry3);
+        if(bKey3&&!(bKey3 in variantCache3))variantCache3[bKey3]=entry3;
+      }
       renderTab('t3',results.t3);
     } catch (rowErr) {
       runState.t3.resumeFrom = i;
@@ -913,6 +1105,7 @@ async function runTab4(isResume){
 
   document.getElementById('t4-res').classList.add('on');
   renderTab('t4',results.t4);
+  var variantCache4=buildVariantCache(results.t4);
 
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t4){
@@ -925,10 +1118,18 @@ async function runTab4(isResume){
     document.getElementById('t4-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+fileData.length;
     try {
       var row=fileData[i];var pn=getPN(row);
-      var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
-      var rhtml=await apiCallRetry(prompt,800);
-      rhtml=rhtml.replace(/```html|```/g,'').trim();
-      results.t4.push({partNumber:pn,html:rhtml,row:row});
+      var bKey4=baseItemKey(pn);
+      var cached4=(reuseVariantsOn()&&bKey4)?variantCache4[bKey4]:null;
+      if(cached4){
+        results.t4.push({partNumber:pn,html:cached4.html,row:row,reusedFrom:cached4.partNumber});
+      } else {
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Do NOT include a "Part Number" or "Brand" row - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+JSON.stringify(row,null,2);
+        var rhtml=await apiCallRetry(prompt,800);
+        rhtml=rhtml.replace(/```html|```/g,'').trim();
+        var entry4={partNumber:pn,html:rhtml,row:row};
+        results.t4.push(entry4);
+        if(bKey4&&!(bKey4 in variantCache4))variantCache4[bKey4]=entry4;
+      }
       renderTab('t4',results.t4);
     } catch (rowErr) {
       runState.t4.resumeFrom = i;
@@ -957,6 +1158,7 @@ async function runTab4(isResume){
   updateConsolGrid();
 }
 
+
 function renderTab(prefix,data){
   var tbody=document.getElementById(prefix+'-tbody');
   if(!data.length){
@@ -967,7 +1169,7 @@ function renderTab(prefix,data){
   var rows='';
   for(var i=0;i<data.length;i++){
     var r=data[i];
-    rows+='<tr><td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+'</td>';
+    rows+='<tr><td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+(r.reusedFrom?'<br><span class="uz-sub" style="font-size:9px;">&#9851; same as '+esc(r.reusedFrom)+'</span>':'')+'</td>';
     rows+='<td><div class="preview-wrap"><div class="preview-label">Preview</div><div class="preview-content">'+r.html+'</div></div></td>';
     rows+='<td><button class="cpbtn" data-src="'+prefix+'" data-idx="'+i+'" onclick="cp(this)">Copy HTML</button></td></tr>';
   }
@@ -996,26 +1198,41 @@ function updateConsolGrid(){
     var count=results[item.key].length;
     html+='<div class="consol-item"><span class="consol-name">'+item.label+'</span><span class="consol-count'+(count===0?' empty':'')+'">'+( count>0?count+' rows':'Not generated')+'</span></div>';
   });
+  var sdCount=(fileData&&fileData.length)?fileData.length:0;
+  html+='<div class="consol-item"><span class="consol-name">Structured Data (JSON-LD)</span><span class="consol-count'+(sdCount===0?' empty':'')+'">'+(sdCount>0?sdCount+' rows (automatic, no generate step needed)':'Not available - load data first')+'</span></div>';
   var el=document.getElementById('consol-grid');if(el)el.innerHTML=html;
 }
 
 function runConsolidate(){
-  var hasAny=results.t1.length||results.t2.length||results.t3.length||results.t4.length;
-  if(!hasAny){setMsg('t5-msg','No data generated yet. Run at least one tab first.','error');return;}
+  var hasAny=results.t1.length||results.t2.length||results.t3.length||results.t4.length||(fileData&&fileData.length);
+  if(!hasAny){setMsg('t5-msg','No data yet - upload/merge a file, or generate at least one tab first.','error');return;}
   var wb=XLSX.utils.book_new();
   var pnMap={};
   function addRows(arr,field){arr.forEach(function(r){var pn=r.partNumber||'';if(!pnMap[pn])pnMap[pn]={};if(field==='title'){if(r.titles){if(r.titles.amazon)pnMap[pn].amazon=r.titles.amazon;if(r.titles.ebay)pnMap[pn].ebay=r.titles.ebay;if(r.titles.website)pnMap[pn].website=r.titles.website;}else{pnMap[pn][r.channel||'title']=r.title||'';}}else{pnMap[pn][field]=r.html||r.slug||'';}});}
   addRows(results.t1,'title');addRows(results.slugs,'slug');addRows(results.t2,'highlights');addRows(results.t3,'description');addRows(results.t4,'html_table');
-  var headers=['Part Number','Amazon Title','eBay Title','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)'];
+  // Structured data needs no "generate" step of its own - it's built fresh
+  // for every row already in the merged sheet, straight from those fields,
+  // whether or not any content tab has been run yet.
+  var familyGroupsExport=(fileData&&fileData.length)?buildFamilyGroups(fileData):{};
+  if(fileData&&fileData.length){
+    fileData.forEach(function(row){
+      var pn=getPN(row)||'';
+      if(!pnMap[pn])pnMap[pn]={};
+      var bKeyExport=baseItemKey(pn);
+      pnMap[pn].structured_data=JSON.stringify(buildProductJsonLd(row,familyGroupsExport[bKeyExport]),null,2);
+    });
+  }
+  var headers=['Part Number','Amazon Title','eBay Title','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)','Structured Data (JSON-LD)'];
   var rows=[headers];
-  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.amazon||'',d.ebay||'',d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'']);});
+  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.amazon||'',d.ebay||'',d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'',d.structured_data||'']);});
   var ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:18},{wch:60},{wch:45},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50}];
+  ws['!cols']=[{wch:18},{wch:60},{wch:45},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50},{wch:60}];
   XLSX.utils.book_append_sheet(wb,ws,'All Outputs');
-  if(results.t1.length){var t1r=[['Part Number','Title','Channel','Characters']];results.t1.forEach(function(r){if(r.titles){['amazon','ebay','website'].forEach(function(ch){if(r.titles[ch])t1r.push([r.partNumber||'',r.titles[ch],ch,r.titles[ch].length]);});}else{t1r.push([r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);}});var ws1=XLSX.utils.aoa_to_sheet(t1r);XLSX.utils.book_append_sheet(wb,ws1,'Product Names');}
+  if(results.t1.length){var t1r=[['Part Number','Title','Channel','Characters']];results.t1.forEach(function(r){if(r.titles){['amazon','ebay','website'].forEach(function(ch){if(r.titles[ch])t1r.push([r.partNumber||'',r.titles[ch],ch,r.titles[ch].length]);});}else{t1r.push([r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);}});var ws1=XLSX.utils.aoa_to_sheet(t1r);ws1['!cols']=[{wch:18},{wch:60},{wch:12},{wch:10}];XLSX.utils.book_append_sheet(wb,ws1,'Product Names');}
   if(results.t2.length){var t2r=[['Part Number','Highlights (HTML)']];results.t2.forEach(function(r){t2r.push([r.partNumber||'',r.html||'']);});var ws2=XLSX.utils.aoa_to_sheet(t2r);ws2['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws2,'Highlights');}
   if(results.t3.length){var t3r=[['Part Number','Description (HTML)']];results.t3.forEach(function(r){t3r.push([r.partNumber||'',r.html||'']);});var ws3=XLSX.utils.aoa_to_sheet(t3r);ws3['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws3,'Descriptions');}
   if(results.t4.length){var t4r=[['Part Number','Specs Table (HTML)']];results.t4.forEach(function(r){t4r.push([r.partNumber||'',r.html||'']);});var ws4=XLSX.utils.aoa_to_sheet(t4r);ws4['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws4,'HTML Tables');}
+  if(fileData&&fileData.length){var sdr=[['Part Number','Structured Data (JSON-LD)']];fileData.forEach(function(row){var pn=getPN(row)||'';sdr.push([pn,pnMap[pn]?pnMap[pn].structured_data||'':'']);});var wsSd=XLSX.utils.aoa_to_sheet(sdr);wsSd['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,wsSd,'Structured Data');}
   if(results.slugs.length){var slr=[['Part Number','Title','URL Slug']];results.slugs.forEach(function(r){slr.push([r.partNumber||'',r.title||'',r.slug||'']);});var wsl=XLSX.utils.aoa_to_sheet(slr);wsl['!cols']=[{wch:18},{wch:50},{wch:55}];XLSX.utils.book_append_sheet(wb,wsl,'URL Slugs');}
   XLSX.writeFile(wb,'ListingIQ-Export.xlsx');
   setMsg('t5-msg','Export complete.','success');
@@ -1557,7 +1774,7 @@ function useMergedData(){
   if(!mergedForFileData.length){alert('Run the merge first.');return;}
   fileData=mergedForFileData;
   results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
-  runState={t1:{resumeFrom:null},t2:{resumeFrom:null},t3:{resumeFrom:null},t4:{resumeFrom:null}};
+  runState={t1:{resumeFrom:null,channel:null},t2:{resumeFrom:null},t3:{resumeFrom:null},t4:{resumeFrom:null}};
   ['t1','t2','t3','t4'].forEach(function(t){var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');showResume(t,false);});
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
   document.getElementById('uz').classList.add('loaded');
