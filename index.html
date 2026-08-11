@@ -231,6 +231,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         <div class="prog-wrap" id="mg1-prog"><div class="prog-track"><div class="prog-fill" id="mg1-pfill"></div></div><div class="prog-lbl" id="mg1-plbl"></div></div>
         <button class="btn btn-navy" id="mg1-gen" onclick="extractCatalog()"><span id="mg1-lbl">1. Extract Catalog Content</span></button>
         <button class="btn btn-stop" id="mg1-stop" onclick="doStop('mg1')">&#9632; Stop</button>
+        <button class="btn" id="mg1-retry" onclick="retryFailedPages()" style="display:none;background:#b45309;color:#fff;">Retry Failed Pages</button>
 
         <div class="res-block" id="mg1-res">
           <div class="res-hdr"><div class="res-title">Extracted Catalog Entries</div><div class="res-meta" id="mg1-meta"></div></div>
@@ -423,7 +424,7 @@ function clearAll(){
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
   updateConsolGrid();
 
-  pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];
+  pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];lastPageTexts={};failedChunks=[];
   var uzp=document.getElementById('uz-pdf');if(uzp)uzp.classList.remove('loaded');
   var uzpf=document.getElementById('uz-pdf-fname');if(uzpf)uzpf.textContent='';
   var uzpt=document.getElementById('uz-pdf-text');if(uzpt)uzpt.textContent='Drop catalog PDF here, or click to browse';
@@ -432,6 +433,7 @@ function clearAll(){
   var mg2r=document.getElementById('mg2-res');if(mg2r)mg2r.classList.remove('on');
   var pr=document.getElementById('mg-pagerange');if(pr)pr.value='';
   var prh=document.getElementById('mg-pagerange-hint');if(prh)prh.textContent='Upload a PDF above to see its page count.';
+  showRetryFailedBtn(false);
 }
 
 function udrag(e,on){e.preventDefault();document.getElementById('uz').classList.toggle('drag',on);}
@@ -1320,6 +1322,11 @@ var itemIndex = {};          // normalized item_no -> [entries]
 var familyIndex = {};        // normalized family name -> [entries with item_no null]
 var mergedForFileData = [];  // clean rows: Part Number/Brand/Product Type/Key Specs/Additional Info 1-3
 var mergedPreviewRows = [];  // same rows plus a "matched" flag, for the on-screen table
+var lastPageTexts = {};      // page number -> reconstructed text, cached so a retry doesn't need to re-read the PDF
+var failedChunks = [];       // {pages:[n,...], rangeLabel:'4-6'} for page-chunks whose extraction call failed even after retrying - tracked separately from real "product-line-level" entries so failures are never silently miscounted as normal content
+var lastNumPages = 0;
+var lastPagesToRead = [];
+var lastHadPageRange = false;
 
 function udragPdf(e,on){e.preventDefault();document.getElementById('uz-pdf').classList.toggle('drag',on);}
 function udropPdf(e){e.preventDefault();document.getElementById('uz-pdf').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadPdfFile(f);}
@@ -1507,14 +1514,77 @@ function renderCatalogPreview(){
   document.getElementById('mg1-meta').textContent=catalogEntries.length+' entries'+moreNote;
 }
 
+// A page-chunk that failed extraction (even after apiCallRetry's internal
+// retries - typically heavy concurrent API load) is recorded as a
+// catalogEntries row with no item_no, exactly like a real product-line-level
+// family blurb, so it can still be seen in the preview table. This flag is
+// what tells the two apart everywhere else (message counts, retry logic) so
+// a silent failure never gets miscounted as real family-level content.
+function isFailurePlaceholder(e){
+  return !!(e&&e.family&&e.family.indexOf('[extraction warning:')===0);
+}
+
+// Extracts one chunk of pages (using the already-cached lastPageTexts) and
+// pushes either real entries or a failure placeholder + failedChunks record.
+// Shared by the main extraction run and by retryFailedPages() so a retry
+// behaves identically to the original attempt.
+async function extractChunkPages(chunkPages){
+  var chunkText='';
+  chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+(lastPageTexts[pn]||'');});
+  var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
+  try{
+    var resp=await apiCallRetry(buildExtractPrompt(chunkText),4000);
+    var parsed=parseJsonLoose(resp);
+    if(Array.isArray(parsed)){
+      parsed.forEach(function(e){
+        if(!e||typeof e!=='object')return;
+        var itemNo=e.item_no?String(e.item_no).trim():null;
+        var family=e.family?String(e.family).trim():'';
+        var content=e.content?String(e.content).trim():'';
+        if(!family&&!itemNo)return;
+        catalogEntries.push({item_no:itemNo,family:family,content:content});
+      });
+    }
+    return true;
+  }catch(chunkErr){
+    catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message});
+    failedChunks.push({pages:chunkPages,rangeLabel:rangeLabel});
+    return false;
+  }
+}
+
+// Builds the Step 1 result message. Failed chunks are called out explicitly
+// and distinctly from real product-line-level entries - never silently
+// blended into a "success"-looking count - and the message class switches to
+// 'warn' whenever any page range is still unresolved, so it never reads as a
+// clean success when it wasn't one.
+function buildExtractionMsg(){
+  var realEntries=catalogEntries.filter(function(e){return!isFailurePlaceholder(e);});
+  var famOnly=realEntries.filter(function(e){return!e.item_no;}).length;
+  var tied=realEntries.length-famOnly;
+  var pageNote=lastHadPageRange?' from '+lastPagesToRead.length+' selected page(s) of '+lastNumPages:' from all '+lastNumPages+' pages';
+  var base=realEntries.length+' catalog entries extracted'+pageNote+' ('+tied+' tied to an item number, '+famOnly+' product-line-level)';
+  if(failedChunks.length){
+    var ranges=failedChunks.map(function(f){return f.rangeLabel;}).join(', ');
+    return{text:base+'. ⚠ '+failedChunks.length+' page-range(s) failed to extract (pages '+ranges+') - usually a sign of heavy API load, not a real absence of content. Click "Retry Failed Pages" before merging, so items on those pages aren\'t missed.',cls:'warn'};
+  }
+  return{text:base+'. Now run Step 2 to merge with your spec sheet.',cls:'success'};
+}
+
+function showRetryFailedBtn(show){
+  var b=document.getElementById('mg1-retry');
+  if(b)b.style.display=show?'inline-block':'none';
+}
+
 async function extractCatalog(){
   setMsg('mg1-msg','','');
   if(!pdfFileObj){setMsg('mg1-msg','Please upload a catalog PDF first.','error');return;}
   if(!getKey()){setMsg('mg1-msg','Please save your API key at the top of the page first.','error');return;}
   if(typeof pdfjsLib==='undefined'){setMsg('mg1-msg','PDF reader library failed to load. Check your connection and reload the page.','error');return;}
 
-  catalogEntries=[];itemIndex={};familyIndex={};
+  catalogEntries=[];itemIndex={};familyIndex={};lastPageTexts={};failedChunks=[];
   renderCatalogPreview();
+  showRetryFailedBtn(false);
   var btn=document.getElementById('mg1-gen');
   btn.disabled=true;stops.mg1=false;showStop('mg1',true);
 
@@ -1524,14 +1594,14 @@ async function extractCatalog(){
     var numPages=pdf.numPages;
     var pageRange=parsePageRange(document.getElementById('mg-pagerange').value,numPages);
     var pagesToRead=pageRange?Array.from(pageRange).sort(function(a,b){return a-b;}):Array.from({length:numPages},function(_,i){return i+1;});
+    lastNumPages=numPages;lastPagesToRead=pagesToRead;lastHadPageRange=!!pageRange;
 
-    var pageTexts={}; // page number -> text
     for(var pi=0;pi<pagesToRead.length;pi++){
       var pNum=pagesToRead[pi];
       setProg('mg1',Math.round((pi/pagesToRead.length)*40),'Reading page '+pNum+' ('+(pi+1)+' of '+pagesToRead.length+' selected)');
       var page=await pdf.getPage(pNum);
       var tc=await page.getTextContent();
-      pageTexts[pNum]=layoutPageText(tc);
+      lastPageTexts[pNum]=layoutPageText(tc);
     }
 
     var CHUNK=3;
@@ -1541,27 +1611,10 @@ async function extractCatalog(){
         break;
       }
       var chunkPages=pagesToRead.slice(c,c+CHUNK);
-      var chunkText='';
-      chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+pageTexts[pn];});
       var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
       setProg('mg1',40+Math.round((c/pagesToRead.length)*55),'Extracting pages '+rangeLabel+' ('+Math.min(c+CHUNK,pagesToRead.length)+' of '+pagesToRead.length+' selected)');
       document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+' / '+pagesToRead.length+' selected';
-      try{
-        var resp=await apiCallRetry(buildExtractPrompt(chunkText),4000);
-        var parsed=parseJsonLoose(resp);
-        if(Array.isArray(parsed)){
-          parsed.forEach(function(e){
-            if(!e||typeof e!=='object')return;
-            var itemNo=e.item_no?String(e.item_no).trim():null;
-            var family=e.family?String(e.family).trim():'';
-            var content=e.content?String(e.content).trim():'';
-            if(!family&&!itemNo)return;
-            catalogEntries.push({item_no:itemNo,family:family,content:content});
-          });
-        }
-      }catch(chunkErr){
-        catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message});
-      }
+      await extractChunkPages(chunkPages);
       renderCatalogPreview();
     }
 
@@ -1569,15 +1622,57 @@ async function extractCatalog(){
     setProg('mg1',100,'');
     setTimeout(function(){setProg('mg1',0,'');},400);
     if(!stops.mg1){
-      var famOnly=catalogEntries.filter(function(e){return!e.item_no;}).length;
-      var pageNote=pageRange?' from '+pagesToRead.length+' selected page(s) of '+numPages:' from all '+numPages+' pages';
-      setMsg('mg1-msg',catalogEntries.length+' catalog entries extracted'+pageNote+' ('+(catalogEntries.length-famOnly)+' tied to an item number, '+famOnly+' product-line-level). Now run Step 2 to merge with your spec sheet.','success');
+      var summary=buildExtractionMsg();
+      setMsg('mg1-msg',summary.text,summary.cls);
+      showRetryFailedBtn(failedChunks.length>0);
     }
   }catch(err){
     var extra=/worker/i.test(err.message)?' This looks like the PDF reader failed to set up in whatever window this page is running in. If you\'re viewing this inside an embedded preview, try opening the actual deployed page (your GitHub Pages URL) in a normal browser tab instead.':'';
     setMsg('mg1-msg','Failed to read/extract catalog: '+err.message+extra,'error');
     setProg('mg1',0,'');
   }
+
+  btn.disabled=false;
+  document.getElementById('mg1-lbl').textContent='1. Extract Catalog Content';
+  showStop('mg1',false);
+  renderCatalogPreview();
+}
+
+// Re-runs extraction ONLY for the page-chunks that failed last time, using
+// the cached page text (no need to re-read the PDF) - so a transient load
+// spike doesn't force redoing a whole 30+ page catalog from scratch.
+async function retryFailedPages(){
+  if(!failedChunks.length)return;
+  var toRetry=failedChunks.slice();
+  var retryFamilyLabels={};
+  toRetry.forEach(function(f){retryFamilyLabels['[extraction warning: pages '+f.rangeLabel+']']=true;});
+  catalogEntries=catalogEntries.filter(function(e){return!(isFailurePlaceholder(e)&&retryFamilyLabels[e.family]);});
+  failedChunks=[];
+
+  setMsg('mg1-msg','Retrying '+toRetry.length+' failed page-range(s)...','info');
+  showRetryFailedBtn(false);
+  var btn=document.getElementById('mg1-gen');
+  btn.disabled=true;stops.mg1=false;showStop('mg1',true);
+
+  for(var i=0;i<toRetry.length;i++){
+    if(stops.mg1){
+      setMsg('mg1-msg','Stopped retrying. '+failedChunks.length+' page-range(s) still unresolved.','warn');
+      break;
+    }
+    setProg('mg1',Math.round((i/toRetry.length)*95),'Retrying pages '+toRetry[i].rangeLabel+' ('+(i+1)+' of '+toRetry.length+')');
+    document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Retrying '+toRetry[i].rangeLabel;
+    await extractChunkPages(toRetry[i].pages);
+    renderCatalogPreview();
+  }
+
+  buildCatalogIndices();
+  setProg('mg1',100,'');
+  setTimeout(function(){setProg('mg1',0,'');},400);
+  if(!stops.mg1){
+    var summary=buildExtractionMsg();
+    setMsg('mg1-msg',summary.text,summary.cls);
+  }
+  showRetryFailedBtn(failedChunks.length>0);
 
   btn.disabled=false;
   document.getElementById('mg1-lbl').textContent='1. Extract Catalog Content';
