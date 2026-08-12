@@ -791,13 +791,16 @@ async function apiCall(prompt,maxTok){
     },
     body:JSON.stringify({model:'claude-sonnet-5',max_tokens:maxTok||600,messages:[{role:'user',content:prompt}]})
   });
-  if(!res.ok){var e=await res.json();throw new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);}
+  if(!res.ok){var e=await res.json();var em=new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);em.status=res.status;throw em;}
   var d=await res.json();
   return d.content.map(function(i){return i.text||'';}).join('').trim();
 }
 
-// Up to 3 attempts with backoff (3s, then 6s). Catches transient rate-limit
-// and network blips without forcing the user to hit Resume for every hiccup.
+// Up to 5 attempts with backoff (3s, 6s, 12s, 24s - about 45s of patience
+// total instead of the old ~9s) before giving up. Catches transient
+// rate-limit/overload and network blips without forcing the user to hit
+// Resume for every hiccup, and gives a real sustained-load stretch enough
+// time to clear instead of failing fast and needing a manual re-click.
 //
 // Also treats an EMPTY (or whitespace-only) response as a failure to retry,
 // not a success. apiCall() only throws on an HTTP error status - if a
@@ -808,17 +811,26 @@ async function apiCall(prompt,maxTok){
 // In one real 226-row run, 134 rows (61%) came back blank this way with no
 // error shown - the run just kept going, quietly producing an empty title
 // for most of the sheet instead of stopping or retrying.
+//
+// Non-transient errors (bad/missing API key, malformed request, unknown
+// model) are NOT worth 45 seconds of retrying - they'll fail the exact same
+// way every time. Those fail fast on the first attempt instead, so a real
+// configuration problem surfaces immediately rather than after a minute of
+// pointless waiting.
+var NON_RETRYABLE_STATUS={400:1,401:1,403:1,404:1};
 async function apiCallRetry(prompt, maxTok){
   var lastErr=null;
-  for(var attempt=0;attempt<3;attempt++){
+  var MAX_ATTEMPTS=5;
+  for(var attempt=0;attempt<MAX_ATTEMPTS;attempt++){
     try {
       var result=await apiCall(prompt,maxTok);
       if(result&&result.trim()!=='')return result;
       lastErr=new Error('The API returned an empty response (no error, but no usable text either) - usually a sign of heavy concurrent API load.');
     } catch(err){
       lastErr=err;
+      if(err.status&&NON_RETRYABLE_STATUS[err.status])throw err;
     }
-    if(attempt<2){
+    if(attempt<MAX_ATTEMPTS-1){
       await new Promise(function(r){setTimeout(r,3000*Math.pow(2,attempt));});
     }
   }
@@ -1767,6 +1779,12 @@ async function extractCatalog(){
       document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+' / '+pagesToRead.length+' selected';
       await extractChunkPages(chunkPages);
       renderCatalogPreview();
+      // Small pacing gap between chunk calls (not after the last one) - gives
+      // the API a breath between back-to-back requests instead of firing them
+      // as fast as each response returns, which helps avoid tripping
+      // per-minute rate limits on accounts with tighter limits or when
+      // something else is sharing the same API key concurrently.
+      if(c+CHUNK<pagesToRead.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
     }
 
     buildCatalogIndices();
@@ -1814,6 +1832,7 @@ async function retryFailedPages(){
     document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Retrying '+toRetry[i].rangeLabel;
     await extractChunkPages(toRetry[i].pages);
     renderCatalogPreview();
+    if(i+1<toRetry.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
   }
 
   buildCatalogIndices();
