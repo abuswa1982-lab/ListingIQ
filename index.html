@@ -778,19 +778,38 @@ function validate(){
   return null;
 }
 
-async function apiCall(prompt,maxTok){
+// Round 14: a fetch() with no signal can hang indefinitely if the network
+// stalls or the API accepts the connection but never finishes responding -
+// there was previously no ceiling on how long a single request could take,
+// which (combined with 5 retries, each potentially hanging) could make the
+// UI look permanently frozen with no actual error ever surfacing. A 90s
+// per-request timeout (generous - a genuinely large structured-extraction
+// response can legitimately take a while to generate) turns a silent hang
+// into a real, retryable error instead.
+async function apiCall(prompt,maxTok,timeoutMs){
   var key=getKey();
   if(!key)throw new Error('No API key set.');
-  var res=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'x-api-key':key,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body:JSON.stringify({model:'claude-sonnet-5',max_tokens:maxTok||600,messages:[{role:'user',content:prompt}]})
-  });
+  var controller=new AbortController();
+  var timer=setTimeout(function(){controller.abort();},timeoutMs||90000);
+  var res;
+  try{
+    res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({model:'claude-sonnet-5',max_tokens:maxTok||600,messages:[{role:'user',content:prompt}]}),
+      signal:controller.signal
+    });
+  }catch(fetchErr){
+    if(fetchErr.name==='AbortError')throw new Error('The API request took longer than '+Math.round((timeoutMs||90000)/1000)+'s and timed out - the API may be under heavy load right now.');
+    throw fetchErr;
+  }finally{
+    clearTimeout(timer);
+  }
   if(!res.ok){var e=await res.json();var em=new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);em.status=res.status;throw em;}
   var d=await res.json();
   return d.content.map(function(i){return i.text||'';}).join('').trim();
@@ -818,9 +837,9 @@ async function apiCall(prompt,maxTok){
 // configuration problem surfaces immediately rather than after a minute of
 // pointless waiting.
 var NON_RETRYABLE_STATUS={400:1,401:1,403:1,404:1};
-async function apiCallRetry(prompt, maxTok){
+async function apiCallRetry(prompt, maxTok, maxAttempts){
   var lastErr=null;
-  var MAX_ATTEMPTS=5;
+  var MAX_ATTEMPTS=maxAttempts||5;
   for(var attempt=0;attempt<MAX_ATTEMPTS;attempt++){
     try {
       var result=await apiCall(prompt,maxTok);
@@ -1697,12 +1716,44 @@ function isFailurePlaceholder(e){
 // Pages" - so the failure message ends up naming the smallest possible
 // range that's actually still a problem, not a whole multi-page chunk that
 // was mostly fine.
-async function extractChunkPages(chunkPages){
+// Round 14: ticks an elapsed-seconds counter into the extraction label while
+// a chunk is in flight. Previously the label was set once ("Pages 5-6 / N
+// selected") and never updated again until the whole chunk (including any
+// auto-split sub-attempts) finished - on a genuinely slow/heavy request that
+// can legitimately take minutes (5 patient-retry attempts x up to ~90s each,
+// then repeated per split page), the UI looked identically frozen whether it
+// was actively working or actually stuck. This makes the difference visible.
+function tickExtractLabel(baseText){
+  var el=document.getElementById('mg1-lbl');
+  if(!el)return null;
+  var start=Date.now();
+  el.innerHTML='<span class="spinner"></span>'+baseText;
+  return setInterval(function(){
+    var secs=Math.round((Date.now()-start)/1000);
+    el.innerHTML='<span class="spinner"></span>'+baseText+' - '+secs+'s elapsed';
+  },1000);
+}
+
+async function extractChunkPages(chunkPages, opts){
+  opts=opts||{};
   var chunkText='';
   chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+(lastPageTexts[pn]||'');});
   var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
+  var labelBase=opts.isSplitAttempt?('Page '+rangeLabel+' (combined request failed - retrying alone)'):('Pages '+rangeLabel);
+  var ticker=tickExtractLabel(labelBase);
   try{
-    var resp=await apiCallRetry(buildExtractPrompt(chunkText),8000);
+    // Split sub-attempts use a shorter retry budget (3 attempts, ~9s backoff)
+    // instead of the full 5/~45s+ budget: the combined chunk already spent
+    // the full patient retry finding out this is a genuinely heavy/failing
+    // request, so each split half doesn't need to re-spend that same long
+    // tail - it either succeeds quickly as a lighter request, or it doesn't,
+    // and either way the user shouldn't be waiting 2-3x as long as before to
+    // find out. This was the actual cause of Round 13b's extraction looking
+    // "stuck" on a genuinely bad page: total worst-case wait time for one
+    // bad 2-page chunk (combined + page A + page B, each doing the full
+    // 5-attempt/~45s+ patient retry with no per-page timeout) could run to
+    // several minutes with no visible progress update.
+    var resp=await apiCallRetry(buildExtractPrompt(chunkText),8000,opts.isSplitAttempt?3:5);
     var parsed=parseJsonLoose(resp);
     if(Array.isArray(parsed)){
       parsed.forEach(function(e){
@@ -1730,7 +1781,7 @@ async function extractChunkPages(chunkPages){
     if(chunkPages.length>1){
       var allOk=true;
       for(var i=0;i<chunkPages.length;i++){
-        var ok=await extractChunkPages([chunkPages[i]]);
+        var ok=await extractChunkPages([chunkPages[i]],{isSplitAttempt:true});
         if(!ok)allOk=false;
         if(i+1<chunkPages.length)await new Promise(function(r){setTimeout(r,400);});
       }
@@ -1739,6 +1790,8 @@ async function extractChunkPages(chunkPages){
     catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message});
     failedChunks.push({pages:chunkPages,rangeLabel:rangeLabel});
     return false;
+  }finally{
+    if(ticker)clearInterval(ticker);
   }
 }
 
@@ -2307,7 +2360,7 @@ function renderMergePreview(){
   var rows='';
   for(var i=0;i<show.length;i++){
     var r=show[i];
-    var m=r.matched?'<span style="color:var(--ok);font-weight:bold;">Yes</span>':'<span style="color:var(--err);font-weight:bold;">No</span>';
+    var m=r.catalogOnly?'<span style="color:#8a5cf6;font-weight:bold;" title="This row was not in your spec sheet - added from the catalog PDF only">Catalog only</span>':(r.matched?'<span style="color:var(--ok);font-weight:bold;">Yes</span>':'<span style="color:var(--err);font-weight:bold;">No</span>');
     rows+='<tr><td class="td-pn">'+esc(r.partNumber)+'</td><td>'+m+'</td><td class="td-main">'+esc(r.productType)+'</td><td class="td-main">'+esc((r.keySpecs||'').slice(0,90))+'</td><td class="td-main">'+esc((r.ai1||'').slice(0,110))+'</td></tr>';
   }
   tbody.innerHTML=rows;
@@ -2380,6 +2433,15 @@ function mergeData(){
   validationFlags=[];
   masterRecords={};masterRecordOrder=[];qaResults=[]; // a fresh merge invalidates any master records/QA built against the old data
   var matchedCount=0;
+  // Round 15: tracks which catalog item numbers actually got claimed by an
+  // Excel row below, so that after the Excel-driven loop finishes, any
+  // catalog item that was NEVER claimed can still be added as its own row
+  // (see the block after this loop). Ahmed's explicit instruction: the
+  // Excel sheet is not the authoritative list of what exists - a real item
+  // sitting in the PDF catalog with no matching spec-sheet row still needs
+  // to become a real listing, not silently disappear because nothing in
+  // the spreadsheet pointed at it.
+  var claimedItemKeys={};
 
   fileData.forEach(function(row){
     var rawVal=String(detectedCol?(row[detectedCol]||''):(getPN(row)||'')).trim();
@@ -2404,6 +2466,7 @@ function mergeData(){
       itemContent=matches.map(flattenEntryText).filter(Boolean).join(' ');
       matches.forEach(function(m){if(m.technical_specs)Object.keys(m.technical_specs).forEach(function(k){if(pdfSpecs[k]===undefined)pdfSpecs[k]=m.technical_specs[k];});});
       matched=true;
+      if(matches[0].item_no)claimedItemKeys[matches[0].item_no.toUpperCase()]=true;
     }
     var familyExtra='';
     if(family&&familyIndex[family.toLowerCase()]){
@@ -2440,19 +2503,54 @@ function mergeData(){
     validateRowAgainstCatalog(rawVal,base,effectiveRow,detectedCol||null,boilerplateCols,pdfSpecs,!!(keySpecs||itemContent||familyExtra));
   });
 
+  // Round 15: add any catalog item that was never claimed by an Excel row
+  // above as its own row, instead of leaving it out entirely. Without this,
+  // a manufacturer PDF catalog that lists items the spec sheet doesn't
+  // (a common real-world gap - sheets go stale, catalogs get new SKUs
+  // added) would silently produce zero listings for those items, even
+  // though the catalog has everything needed to build one. These rows are
+  // flagged distinctly (catalogOnly) since they have no spec-sheet backing
+  // for dimensional Key Specs - visible, not silent, same principle as
+  // every other gap this tool surfaces rather than hides.
+  var catalogOnlyAdded=0;
+  Object.keys(itemIndex).forEach(function(key){
+    if(claimedItemKeys[key])return;
+    var entries=itemIndex[key];
+    var e=entries&&entries[0];
+    if(!e||!e.item_no)return;
+    var famExtra='';
+    if(e.family&&familyIndex[e.family.toLowerCase()]){
+      famExtra=familyIndex[e.family.toLowerCase()].map(flattenEntryText).filter(Boolean).join(' ');
+    }
+    var ownContent=entries.map(flattenEntryText).filter(Boolean).join(' ');
+    var clean={
+      'Part Number':e.item_no,
+      'Brand':brand,
+      'Product Type':e.family||'Unclassified',
+      'Key Specs':'',
+      'Additional Info 1':ownContent,
+      'Additional Info 2':famExtra,
+      'Additional Info 3':''
+    };
+    mergedForFileData.push(clean);
+    mergedPreviewRows.push({partNumber:e.item_no,matched:true,catalogOnly:true,productType:clean['Product Type'],keySpecs:'',ai1:ownContent||famExtra});
+    catalogOnlyAdded++;
+  });
+
   renderMergePreview();
   renderValidationSummary();
   var pct=fileData.length?Math.round(matchedCount/fileData.length*100):0;
   var colNote=' Item column used: "'+(detectedCol||'(none found)')+'"'+(itemColInput?' (you specified this)':' (auto-detected)')+'.';
   var flagNote=validationFlags.length?(' '+validationFlags.length+' item(s) flagged for review below (missing data or a spec sheet/catalog disagreement).'):'';
+  var catalogOnlyNote=catalogOnlyAdded?(' Plus '+catalogOnlyAdded+' item(s) found only in the catalog (not in your spec sheet) - added as their own rows so they still get real listings; these have no dimensional Key Specs since that data only exists in the spec sheet, review them before generating.'):'';
   if(!catalogEntries.length){
     setMsg('mg2-msg','No catalog was extracted, so rows were cleaned up (multi-section sheet flattened, Key Specs built) without catalog enrichment.'+colNote+flagNote,'warn');
-  } else if(matchedCount===0){
+  } else if(matchedCount===0&&!catalogOnlyAdded){
     var sampleRaw=mergedPreviewRows.slice(0,3).map(function(r){return r.partNumber;}).filter(Boolean).join(', ')||'(all blank)';
     var sampleKeys=Object.keys(itemIndex).slice(0,5).join(', ')||'(none extracted)';
     setMsg('mg2-msg','0 of '+fileData.length+' rows matched.'+colNote+' Example values read from that column: '+sampleRaw+'. Example item numbers found in the catalog: '+sampleKeys+'. If the column name looks wrong, type the exact header from your sheet into the "Item/Part Number column" field above and merge again.','error');
   } else {
-    setMsg('mg2-msg',matchedCount+' of '+fileData.length+' rows ('+pct+'%) matched to catalog content.'+colNote+' Unmatched rows are still included using whatever was in the spec sheet - review those before generating listings for them.'+flagNote,matchedCount===fileData.length&&!validationFlags.length?'success':'warn');
+    setMsg('mg2-msg',matchedCount+' of '+fileData.length+' rows ('+pct+'%) matched to catalog content.'+colNote+' Unmatched rows are still included using whatever was in the spec sheet - review those before generating listings for them.'+flagNote+catalogOnlyNote,(matchedCount===fileData.length&&!validationFlags.length&&!catalogOnlyAdded)?'success':'warn');
   }
 }
 
