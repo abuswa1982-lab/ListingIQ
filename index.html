@@ -1527,22 +1527,72 @@ function parseJsonObjectLoose(s){
   try{return JSON.parse(t);}catch(e){return null;}
 }
 
+// Returns {items, truncated}. `truncated:true` means the strict JSON.parse
+// on the whole response failed - almost always because a dense page (lots of
+// items, each with a full technical_specs/features/applications payload)
+// produced a response that got cut off mid-array at the token cap, rather
+// than because of anything specific to any one catalog's layout. In that
+// case `items` holds only whichever catalog entries were FULLY complete
+// before the cutoff; the caller is responsible for treating `truncated` the
+// same way it treats a real failure (see extractChunkPages), since a
+// combined multi-page request that got cut off almost always finishes fine
+// once retried as smaller, individual-page requests instead.
 function parseJsonLoose(s){
-  var t=String(s||'').replace(/```json|```/g,'').trim();
-  var m=t.match(/\[[\s\S]*\]/);
-  if(m)t=m[0];
+  var raw=String(s||'').replace(/```json|```/g,'').trim();
+  // First, try a clean strict parse: isolate from the first "[" to the LAST
+  // "]" in the text, which trims stray leading/trailing prose around a
+  // genuinely complete, well-formed array.
+  var m=raw.match(/\[[\s\S]*\]/);
+  var trimmed=m?m[0]:raw;
   try{
-    return JSON.parse(t);
+    return {items:JSON.parse(trimmed), truncated:false};
   }catch(e){
-    // A dense catalog page (lots of items) can produce a response that gets
-    // cut off mid-array at the token cap, which breaks JSON.parse on the
-    // whole thing. Salvage whatever complete {...} objects are still
-    // there instead of throwing the entire chunk's extraction away.
-    var objs=t.match(/\{[^{}]*\}/g);
-    if(!objs)return null;
+    // The strict parse failed - almost always because the response got cut
+    // off mid-array at the token cap. Salvage whatever COMPLETE top-level
+    // {...} objects are present, but scan the ORIGINAL text from its first
+    // "[" onward - NOT the "first [ to last ]" trim above. That trim is
+    // unsafe for a cut-off response: if a nested EMPTY array like
+    // "features":[] happens to be the last "]" anywhere in the text (common,
+    // since every entry has one), the trim silently chops off the rest of
+    // that very entry before this salvage step ever sees it, discarding an
+    // otherwise-complete item. Scanning from the raw text's first "["
+    // (unbounded on the end) instead means a genuinely complete item is
+    // never cut short by where some unrelated nested array happens to close.
+    //
+    // Brace depth and string state (quotes, escapes) are tracked rather than
+    // a flat regex, because each catalog entry itself contains a NESTED
+    // object (technical_specs: {...}) - a naive "match any {...} pair" regex
+    // only ever finds that inner object (which has no item_no/family of its
+    // own) and never the complete outer entry, silently discarding every
+    // real item from any response that got cut off. Only an object whose
+    // closing brace brings the depth back to 0 (i.e. it's a genuinely
+    // complete, un-truncated top-level entry) is kept.
+    var start0=raw.indexOf('[');
+    var scanFrom=start0>=0?raw.slice(start0):raw;
     var out=[];
-    objs.forEach(function(o){try{out.push(JSON.parse(o));}catch(e2){}});
-    return out.length?out:null;
+    var depth=0,start=-1,inStr=false,esc=false;
+    for(var i=0;i<scanFrom.length;i++){
+      var ch=scanFrom[i];
+      if(inStr){
+        if(esc){esc=false;}
+        else if(ch==='\\'){esc=true;}
+        else if(ch==='"'){inStr=false;}
+        continue;
+      }
+      if(ch==='"'){inStr=true;continue;}
+      if(ch==='{'){
+        if(depth===0)start=i;
+        depth++;
+      }else if(ch==='}'){
+        depth--;
+        if(depth===0&&start>=0){
+          var candidate=scanFrom.slice(start,i+1);
+          try{out.push(JSON.parse(candidate));}catch(e2){}
+          start=-1;
+        }
+      }
+    }
+    return {items:out.length?out:null, truncated:true};
   }
 }
 
@@ -1754,7 +1804,9 @@ async function extractChunkPages(chunkPages, opts){
     // 5-attempt/~45s+ patient retry with no per-page timeout) could run to
     // several minutes with no visible progress update.
     var resp=await apiCallRetry(buildExtractPrompt(chunkText),8000,opts.isSplitAttempt?3:5);
-    var parsed=parseJsonLoose(resp);
+    var parseResult=parseJsonLoose(resp);
+    var parsed=parseResult.items;
+    var pushedThisAttempt=[];
     if(Array.isArray(parsed)){
       parsed.forEach(function(e){
         if(!e||typeof e!=='object')return;
@@ -1773,8 +1825,36 @@ async function extractChunkPages(chunkPages, opts){
         }
         var features=Array.isArray(e.features)?e.features.map(function(f){return String(f).trim();}).filter(Boolean):[];
         var applications=Array.isArray(e.applications)?e.applications.map(function(a){return String(a).trim();}).filter(Boolean):[];
-        catalogEntries.push({item_no:itemNo,family:family,technical_specs:technicalSpecs,features:features,applications:applications});
+        var entry={item_no:itemNo,family:family,technical_specs:technicalSpecs,features:features,applications:applications,_srcPages:chunkPages.slice()};
+        catalogEntries.push(entry);
+        pushedThisAttempt.push(entry);
       });
+    }
+    if(parseResult.truncated){
+      // The response was cut off (or malformed) before finishing, so
+      // pushedThisAttempt only holds whichever entries were fully complete
+      // before the cutoff - this chunk is likely missing real items even
+      // though no error was thrown. Never treat this as a quiet success.
+      if(chunkPages.length>1){
+        // Undo the partial credit from the combined attempt and fall through
+        // to the same auto-split-and-retry path used for a real failure -
+        // each half gets its own fresh request and its own full token
+        // budget, which is far less likely to be cut off, and avoids
+        // double-counting items if the split retry finds them again.
+        pushedThisAttempt.forEach(function(e){
+          var idx=catalogEntries.indexOf(e);
+          if(idx>=0)catalogEntries.splice(idx,1);
+        });
+        throw new Error('Response was cut off before finishing (too many items for one combined request).');
+      }
+      // Already down to a single page on its own and it STILL got cut off:
+      // keep whatever was salvaged (partial data is better than none) but
+      // flag the page as needing manual review via the same failedChunks
+      // path a real failure uses, so it can never be mistaken for a
+      // complete, trustworthy read of that page.
+      catalogEntries.push({item_no:null,family:'[extraction warning: page '+rangeLabel+' - response cut off, '+pushedThisAttempt.length+' item(s) recovered but this page may have more]',content:'The response exceeded the length budget even for this single page.',_srcPages:chunkPages.slice()});
+      failedChunks.push({pages:chunkPages,rangeLabel:rangeLabel});
+      return false;
     }
     return true;
   }catch(chunkErr){
@@ -1787,7 +1867,7 @@ async function extractChunkPages(chunkPages, opts){
       }
       return allOk;
     }
-    catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message});
+    catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message,_srcPages:chunkPages.slice()});
     failedChunks.push({pages:chunkPages,rangeLabel:rangeLabel});
     return false;
   }finally{
@@ -1846,7 +1926,31 @@ async function extractCatalog(){
       lastPageTexts[pNum]=layoutPageText(tc);
     }
 
-    var CHUNK=2; // starts at 2 pages (cheaper/fewer calls for typical pages). A chunk that fails even after apiCallRetry's full patient retry is automatically split into single-page requests and retried individually before being flagged (see extractChunkPages) - so a 2-page ask that's too heavy (a real dense catalog page can carry 30-60+ item numbers, making a combined 2-page request much bigger/slower and disproportionately exposed to load-related empty-response failures) recovers on its own instead of failing outright, while easy pages still benefit from fewer, cheaper calls.
+    // Round 17: one page per request, always - not "2 pages, split to 1 on
+    // failure" anymore. That 2-page batching (rounds 12-16) was meant purely
+    // as a cost/speed optimization for the ~90% of pages that are light, but
+    // it made the DENSE pages (like a page with 30-60+ item numbers) into a
+    // recurring reliability problem instead: four separate rounds (13, 13b,
+    // 14, 16) were spent making the "combined chunk fails, fall back to
+    // single pages" path more patient, then auto-splitting, then fixing how
+    // it looked mid-retry, then fixing silent data loss when a combined
+    // response got cut off. All of that complexity existed only to cope with
+    // pairing two pages together in the first place. Reading one page per
+    // request removes the need for any of it on the normal path: a light
+    // page finishes quickly, a genuinely heavy page (like a 48-item page)
+    // just takes its own request and its own full token budget, on its own,
+    // with nothing to combine or split. The failure/truncation-recovery
+    // logic in extractChunkPages (retry, timeout, salvage-on-cutoff) is kept
+    // as-is underneath, as a safety net for the rare single page that's
+    // still too dense to finish in one request - it just no longer has to
+    // fire on every dense page as routine behavior. Trade-off: roughly twice
+    // as many extraction requests for the same catalog as the old 2-page
+    // default, so a full 32-page catalog takes somewhat longer wall-clock
+    // time to read in the common case - a deliberate trade for predictability,
+    // since Ahmed found the "why is it grouping 2 pages together, and why
+    // does that group sometimes need to split itself apart" behavior more
+    // confusing than useful.
+    var CHUNK=1;
     for(var c=0;c<pagesToRead.length;c+=CHUNK){
       if(stops.mg1){
         setMsg('mg1-msg','Stopped. '+catalogEntries.length+' entries extracted so far - you can merge with what was found, or run again to redo from the start.','warn');
@@ -1892,9 +1996,24 @@ async function extractCatalog(){
 async function retryFailedPages(){
   if(!failedChunks.length)return;
   var toRetry=failedChunks.slice();
-  var retryFamilyLabels={};
-  toRetry.forEach(function(f){retryFamilyLabels['[extraction warning: pages '+f.rangeLabel+']']=true;});
-  catalogEntries=catalogEntries.filter(function(e){return!(isFailurePlaceholder(e)&&retryFamilyLabels[e.family]);});
+  // Round 17 fix: drop EVERY catalogEntries entry - real items as well as
+  // failure placeholders - whose _srcPages overlaps a page being retried,
+  // not just placeholders matching an exact old-format family string. The
+  // previous version only ever removed placeholders, so any real items
+  // already salvaged from a partially-truncated page (e.g. 3 of 4 items
+  // recovered before a cutoff) stayed in catalogEntries AND got re-added
+  // when the retry re-extracted that same page successfully, producing
+  // silent duplicates. Matching by page number instead of by a hand-built
+  // family-label string is also robust to the label format changing later
+  // (it already differs between the single-page-truncation placeholder and
+  // the generic failure placeholder) since it doesn't need to know the
+  // exact wording at all.
+  var retryPages={};
+  toRetry.forEach(function(f){f.pages.forEach(function(p){retryPages[p]=true;});});
+  catalogEntries=catalogEntries.filter(function(e){
+    if(!e._srcPages)return true;
+    return!e._srcPages.some(function(p){return retryPages[p];});
+  });
   failedChunks=[];
 
   setMsg('mg1-msg','Retrying '+toRetry.length+' failed page-range(s)...','info');
