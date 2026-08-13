@@ -825,7 +825,7 @@ async function apiCallRetry(prompt, maxTok){
     try {
       var result=await apiCall(prompt,maxTok);
       if(result&&result.trim()!=='')return result;
-      lastErr=new Error('The API returned an empty response (no error, but no usable text either) - usually a sign of heavy concurrent API load.');
+      lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.');
     } catch(err){
       lastErr=err;
       if(err.status&&NON_RETRYABLE_STATUS[err.status])throw err;
@@ -1680,12 +1680,29 @@ function isFailurePlaceholder(e){
 // pushes either real entries or a failure placeholder + failedChunks record.
 // Shared by the main extraction run and by retryFailedPages() so a retry
 // behaves identically to the original attempt.
+//
+// Auto-split on failure: if a MULTI-page chunk still fails even after
+// apiCallRetry's full patient retry (5 attempts, ~45s), the chunk itself
+// might just be too big/complex a single request - a real dense catalog
+// page can carry 30-60+ item numbers, and asking for a combined 2-page
+// chunk means asking for fully-structured records (specs/features/
+// applications each) for all of them in one response, a much bigger and
+// slower request that's disproportionately exposed to load-related
+// empty-response failures. Rather than giving up on the whole range, split
+// it into individual single-page requests and retry each one on its own -
+// each half only needs to succeed independently, and a genuinely too-heavy
+// combined request often succeeds once split into lighter individual asks,
+// even under the same load conditions. Only a single PAGE that still fails
+// after this gets recorded as a real failure needing manual "Retry Failed
+// Pages" - so the failure message ends up naming the smallest possible
+// range that's actually still a problem, not a whole multi-page chunk that
+// was mostly fine.
 async function extractChunkPages(chunkPages){
   var chunkText='';
   chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+(lastPageTexts[pn]||'');});
   var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
   try{
-    var resp=await apiCallRetry(buildExtractPrompt(chunkText),6000);
+    var resp=await apiCallRetry(buildExtractPrompt(chunkText),8000);
     var parsed=parseJsonLoose(resp);
     if(Array.isArray(parsed)){
       parsed.forEach(function(e){
@@ -1710,6 +1727,15 @@ async function extractChunkPages(chunkPages){
     }
     return true;
   }catch(chunkErr){
+    if(chunkPages.length>1){
+      var allOk=true;
+      for(var i=0;i<chunkPages.length;i++){
+        var ok=await extractChunkPages([chunkPages[i]]);
+        if(!ok)allOk=false;
+        if(i+1<chunkPages.length)await new Promise(function(r){setTimeout(r,400);});
+      }
+      return allOk;
+    }
     catalogEntries.push({item_no:null,family:'[extraction warning: pages '+rangeLabel+']',content:chunkErr.message});
     failedChunks.push({pages:chunkPages,rangeLabel:rangeLabel});
     return false;
@@ -1729,7 +1755,7 @@ function buildExtractionMsg(){
   var base=realEntries.length+' catalog entries extracted'+pageNote+' ('+tied+' tied to an item number, '+famOnly+' product-line-level)';
   if(failedChunks.length){
     var ranges=failedChunks.map(function(f){return f.rangeLabel;}).join(', ');
-    return{text:base+'. ⚠ '+failedChunks.length+' page-range(s) failed to extract (pages '+ranges+') - usually a sign of heavy API load, not a real absence of content. Click "Retry Failed Pages" before merging, so items on those pages aren\'t missed.',cls:'warn'};
+    return{text:base+'. ⚠ '+failedChunks.length+' page-range(s) failed to extract even after an automatic retry and single-page split (pages '+ranges+') - not a real absence of content. Click "Retry Failed Pages" before merging, so items on those pages aren\'t missed.',cls:'warn'};
   }
   return{text:base+'. Now run Step 2 to merge with your spec sheet.',cls:'success'};
 }
@@ -1767,7 +1793,7 @@ async function extractCatalog(){
       lastPageTexts[pNum]=layoutPageText(tc);
     }
 
-    var CHUNK=2; // smaller than before now that each item's extraction is structured (specs/features/applications) instead of a capped one-line summary, which makes each chunk's response bigger - keeping chunks smaller keeps responses reliably within budget
+    var CHUNK=2; // starts at 2 pages (cheaper/fewer calls for typical pages). A chunk that fails even after apiCallRetry's full patient retry is automatically split into single-page requests and retried individually before being flagged (see extractChunkPages) - so a 2-page ask that's too heavy (a real dense catalog page can carry 30-60+ item numbers, making a combined 2-page request much bigger/slower and disproportionately exposed to load-related empty-response failures) recovers on its own instead of failing outright, while easy pages still benefit from fewer, cheaper calls.
     for(var c=0;c<pagesToRead.length;c+=CHUNK){
       if(stops.mg1){
         setMsg('mg1-msg','Stopped. '+catalogEntries.length+' entries extracted so far - you can merge with what was found, or run again to redo from the start.','warn');
