@@ -447,6 +447,13 @@ function buildTitlePrompt(chConfig,brand,pn,row){
 // (unusually long brand override, for instance) is never mistaken for a
 // mysterious code or API bug.
 function checkTitlePrefixFits(chConfig,brand,pn){
+  // Round 20: belt-and-suspenders guard. If the caller ever passes an
+  // unrecognized channel config (chConfig undefined), fail with a clear,
+  // actionable message instead of a native "Cannot read properties of
+  // undefined (reading 'max')" crash that gives the user nothing to act on.
+  if(!chConfig){
+    throw new Error('Internal error: no configuration was found for this row\'s output channel. This usually clears up by clicking Generate again (not Resume) so the channel is re-read fresh from the dropdown. If it keeps happening, please tell Ahmed\'s dev what channel the dropdown was set to.');
+  }
   var prefixLen=(brand+' '+pn).length;
   if(prefixLen>=chConfig.max){
     throw new Error('"'+brand+' '+pn+'" ('+prefixLen+' characters) alone already meets or exceeds the '+chConfig.label+' hard limit of '+chConfig.max+' characters - there is no room left for any title content after the mandatory Brand + Part Number prefix. This is a data issue, not an API issue: try a shorter Brand override, or use a channel with more room (like Amazon, 200 chars).');
@@ -937,6 +944,24 @@ async function runTab1(isResume){
     runState.t1.resumeFrom = null;
   }
 
+  // Round 20: defensive repair for "Cannot read properties of undefined
+  // (reading 'max')" - this crash meant `channel` (most likely the value
+  // locked into runState.t1.channel and re-used across a Resume) did not
+  // match any key in the CH config object, so every CH[channel].max lookup
+  // in the loop below threw a raw TypeError instead of a usable message.
+  // Rather than crash, repair it here: fall back to whatever the dropdown
+  // currently offers (always a valid CH key), log the bad value so a real
+  // root cause can be tracked down if this recurs, and tell the user plainly
+  // instead of leaving them staring at a JS error with no next step.
+  if(channel!=='all' && !CH[channel]){
+    var domFallback=document.getElementById('t1-channel').value;
+    var repaired=CH[domFallback]?domFallback:'website';
+    console.warn('[ListingIQ] runTab1: unrecognized channel value, repairing.',{badChannel:channel,isResume:isResume,repairedTo:repaired,resultsT1Length:results.t1.length,resultsT1FirstChannel:results.t1[0]?results.t1[0].channel:null});
+    channel=repaired;
+    runState.t1.channel=channel;
+    setMsg('t1-msg','This run\'s output channel setting was not recognized (this can happen after switching app versions mid-run) - continuing with "'+CH[channel].label+'" instead. If any earlier rows in the table look wrong, re-generate them.','warn');
+  }
+
   document.getElementById('t1-res').classList.add('on');
   renderT1();
 
@@ -1027,8 +1052,9 @@ function renderT1(){
   if(isAll){
     thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>Amazon (200)</th><th>eBay (80)</th><th>Website (70)</th></tr>';
   }else{
-    var ch=results.t1[0]?results.t1[0].channel:'amazon';
-    thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>'+CH[ch].label+' Title</th><th>Chars</th><th></th></tr>';
+    var ch=results.t1[0]?results.t1[0].channel:'website';
+    var headCfg=CH[ch]||CH.website; // Round 20: guard against a stale/unrecognized channel on row 0
+    thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>'+headCfg.label+' Title</th><th>Chars</th><th></th></tr>';
   }
   var rows='';
   for(var i=0;i<results.t1.length;i++){
@@ -1046,9 +1072,19 @@ function renderT1(){
       }
     } else {
       var ch3=r.channel;var cfg3=CH[ch3];var tv3=r.title||'';
-      var len3=tv3.length;
-      var cls3=len3>cfg3.max?'c-over':len3>=cfg3.target*0.85?'c-ok':'c-warn';
-      rows+='<td class="td-main">'+esc(tv3)+'</td><td class="td-chars '+cls3+'">'+len3+'/'+cfg3.max+'</td><td><button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch3+'" onclick="cp(this)">Copy</button></td>';
+      if(!cfg3){
+        // Round 20: a row whose .channel doesn't match any CH key used to
+        // crash the ENTIRE table (not just this row) with "Cannot read
+        // properties of undefined (reading 'max')". Render a clear,
+        // row-scoped message instead so one bad row can't take down the
+        // whole result table, and log it so the actual bad value is visible.
+        console.warn('[ListingIQ] renderT1: row '+i+' has an unrecognized channel, rendering a placeholder.',{channel:ch3,row:r});
+        rows+='<td class="td-main" style="color:#c0392b;">Could not display this row (unrecognized output channel). Re-generate this row.</td><td class="td-chars">-</td><td></td>';
+      } else {
+        var len3=tv3.length;
+        var cls3=len3>cfg3.max?'c-over':len3>=cfg3.target*0.85?'c-ok':'c-warn';
+        rows+='<td class="td-main">'+esc(tv3)+'</td><td class="td-chars '+cls3+'">'+len3+'/'+cfg3.max+'</td><td><button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch3+'" onclick="cp(this)">Copy</button></td>';
+      }
     }
     rows+='</tr>';
   }
