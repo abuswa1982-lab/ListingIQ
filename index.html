@@ -258,9 +258,10 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         <p style="font-size:13px;color:var(--muted);margin:1.25rem 0 0.5rem;font-family:monospace;">Optional but recommended: combine each item's spec-sheet data and catalog data into one clean, verified record before generating listing content. This is what Product Name/Highlights/Description/HTML Table will use if it exists - one AI call per unique base item (pack-size siblings share one record, same as everywhere else in the app), under the same no-invented-data rule as everything else.</p>
         <div class="msg" id="mg3-msg"></div>
         <div class="prog-wrap" id="mg3-prog"><div class="prog-track"><div class="prog-fill" id="mg3-pfill"></div></div><div class="prog-lbl" id="mg3-plbl"></div></div>
-        <button class="btn btn-gold" id="mg3-gen" onclick="buildMasterRecords()"><span id="mg3-lbl">3. Build Master Records</span></button>
+        <button class="btn btn-gold" id="mg3-gen" onclick="buildMasterRecords()" disabled><span id="mg3-lbl">3. Build Master Records</span></button>
         <button class="btn btn-stop" id="mg3-stop" onclick="doStop('mg3')">&#9632; Stop</button>
         <button class="btn" id="mg3-resume" onclick="buildMasterRecords(true)" style="display:none;background:var(--ok);color:#fff;">&#9654; Resume</button>
+        <div class="uz-sub" id="mg3-gate-hint" style="margin-top:6px;color:var(--muted);">Run Step 2 ("Merge Into Spec Sheet") or "Build Rows From Catalog Only" above first - this button lights up once there's merged data to build records from.</div>
 
         <div class="res-block" id="mg3-res">
           <div class="res-hdr"><div class="res-title">Master Records</div><div class="res-meta" id="mg3-meta"></div></div>
@@ -462,7 +463,7 @@ function checkTitlePrefixFits(chConfig,brand,pn){
 
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
-window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();});
+window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();});
 
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
@@ -491,6 +492,7 @@ function clearAll(){
   var mg2r=document.getElementById('mg2-res');if(mg2r)mg2r.classList.remove('on');
   var mg3r=document.getElementById('mg3-res');if(mg3r)mg3r.classList.remove('on');
   showResume('mg3',false);
+  updateMg3Gate();
   renderValidationSummary();
   var pr=document.getElementById('mg-pagerange');if(pr)pr.value='';
   var prh=document.getElementById('mg-pagerange-hint');if(prh)prh.textContent='Upload a PDF above to see its page count.';
@@ -626,6 +628,7 @@ function loadFile(f){
       var mg2rL=document.getElementById('mg2-res');if(mg2rL)mg2rL.classList.remove('on');
       var mg3rL=document.getElementById('mg3-res');if(mg3rL)mg3rL.classList.remove('on');
       showResume('mg3',false);
+      updateMg3Gate();
       ['t1','t2','t3','t4'].forEach(function(t){showResume(t,false);});
       document.getElementById('uz').classList.add('loaded');
       document.getElementById('uz-fname').textContent=f.name+' - '+data.length+' row(s)';
@@ -2242,6 +2245,27 @@ function renderValidationSummary(){
     '<div class="tbl-wrap"><table><thead><tr><th>Part Number</th><th>Type</th><th>Detail</th></tr></thead><tbody>'+(rows||'<tr><td colspan="3" style="color:var(--faint);font-style:italic;text-align:center;padding:12px;">None</td></tr>')+'</tbody></table></div>';
 }
 
+// Round 21: Ahmed reported "Build Master Records" refusing to run with "Run
+// Step 2 (or 'Build Rows From Catalog Only') first" more than once, in a
+// PDF-only workflow (no Excel spec sheet). Direct testing confirmed the
+// underlying logic already works correctly end-to-end (Extract -> Build
+// Rows From Catalog Only -> Build Master Records) when clicked in order -
+// no code bug was found. The real problem was that the button gave no
+// visible signal of its own readiness beforehand; the only feedback was an
+// error message AFTER clicking, which is easy to get out of order with
+// two earlier, easy-to-miss steps. This makes the button's state itself
+// the signal: greyed out with an explanation until there's actually
+// something to build records from, so it's clear before clicking rather
+// than after.
+function updateMg3Gate(){
+  var btn=document.getElementById('mg3-gen');
+  var hint=document.getElementById('mg3-gate-hint');
+  if(!btn||!hint)return;
+  var ready=mergedForFileData&&mergedForFileData.length>0;
+  btn.disabled=!ready;
+  hint.style.display=ready?'none':'block';
+}
+
 // ---- Phase 3: Master Record synthesis ----
 // One AI call per unique base item (pack-size siblings share a record, same
 // grouping as the round-5 content-reuse cache) that combines the already-
@@ -2755,6 +2779,7 @@ function mergeData(){
   } else {
     setMsg('mg2-msg',matchedCount+' of '+fileData.length+' rows ('+pct+'%) matched to catalog content.'+colNote+' Unmatched rows are still included using whatever was in the spec sheet - review those before generating listings for them.'+flagNote+catalogOnlyNote,(matchedCount===fileData.length&&!validationFlags.length&&!catalogOnlyAdded)?'success':'warn');
   }
+  updateMg3Gate();
 }
 
 function buildRowsFromCatalogOnly(){
@@ -2788,6 +2813,7 @@ function buildRowsFromCatalogOnly(){
   });
   renderMergePreview();
   setMsg('mg2-msg',mergedForFileData.length+' product row(s) built directly from the catalog (no spec sheet used). These have no dimensional Key Specs since that data usually lives in the spec sheet, not the catalog text - review before generating listings.','success');
+  updateMg3Gate();
 }
 
 function useMergedData(){
