@@ -1001,7 +1001,9 @@ async function runTab1(isResume){
         for(var ci=0;ci<chs.length;ci++){
           checkTitlePrefixFits(CH[chs[ci]],b,pn);
           var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i]);
-          var raw=await apiCallRetry(p,300);
+          // Round 22 raised this 300->2000; round 23 raised it again to
+          // 4000 - see the note below on the single-channel call.
+          var raw=await apiCallRetry(p,4000);
           entry.titles[chs[ci]]=enforceLimit(raw,CH[chs[ci]].max);
         }
         results.t1.push(entry);
@@ -1009,7 +1011,33 @@ async function runTab1(isResume){
       } else {
         checkTitlePrefixFits(CH[channel],b,pn);
         var p2=buildTitlePrompt(CH[channel],b,pn,rows[i]);
-        var raw2=await apiCallRetry(p2,300);
+        // Round 22: this 300-token budget is the real root cause of the
+        // rounds 18-19 "empty response" mystery on Product Name - Ahmed's
+        // round-18 diagnostic surfacing finally caught it live:
+        // stop_reason=max_tokens, content block types=["thinking"]. The
+        // model spends output-token budget on internal reasoning before
+        // committing to a final answer; Product Name's 300-token cap (by
+        // far the smallest in the app - Highlights uses 600, Description/
+        // HTML Table use 800) left no room left for any actual title text
+        // once that reasoning ran, so the response was cut off mid-thought
+        // with zero usable output - a real 200 OK, just genuinely empty.
+        // Website's more nuanced front-loading rule most likely triggers
+        // more reasoning than Amazon's simpler "fill to 200 chars" rule,
+        // which plausibly explains why it hit this far more consistently,
+        // though the underlying cap was too tight for any channel. Raised
+        // to 2000 in round 22 (matching Master Record synthesis).
+        //
+        // Round 23: Ahmed reported Product Name STILL failing after round
+        // 22, on a run where the merged/Master-Record data is now much
+        // richer (real Excel spec data + catalog data combined) than what
+        // was used to validate round 22's fix - a bigger, more detailed
+        // getPromptData() payload gives the model more to reason about
+        // before it can decide on a title, which plausibly still exceeds
+        // 2000 thinking+output tokens for a fully-populated record. Raised
+        // again to 4000 - a title itself is still only ~50-200 characters
+        // of actual output, so this remains almost entirely headroom for
+        // reasoning, not an expectation that output size grew.
+        var raw2=await apiCallRetry(p2,4000);
         var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
         results.t1.push(entry2);
         if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
