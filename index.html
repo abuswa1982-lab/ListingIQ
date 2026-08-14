@@ -430,6 +430,26 @@ function buildTitlePrompt(chConfig,brand,pn,row){
   return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
 }
 
+// Round 18: Website (hard max 70) and eBay (hard max 80) both require the
+// title to START with "{Brand} {Part Number}" AND fit within a much
+// tighter hard cap than Amazon's 200. If the brand name and part number
+// alone already meet or exceed that cap, the model is being asked to
+// satisfy two contradictory mandatory instructions at once (start with
+// this exact required prefix, AND stay under this hard limit that the
+// prefix alone already blows past). Rather than silently sending that
+// impossible request and letting whatever happens next (a bad/garbled
+// title, or in the worst case a genuinely empty response) look like an
+// unexplained failure, this catches it up front with a clear, specific
+// message naming the actual numbers involved - so a real data problem
+// (unusually long brand override, for instance) is never mistaken for a
+// mysterious code or API bug.
+function checkTitlePrefixFits(chConfig,brand,pn){
+  var prefixLen=(brand+' '+pn).length;
+  if(prefixLen>=chConfig.max){
+    throw new Error('"'+brand+' '+pn+'" ('+prefixLen+' characters) alone already meets or exceeds the '+chConfig.label+' hard limit of '+chConfig.max+' characters - there is no room left for any title content after the mandatory Brand + Part Number prefix. This is a data issue, not an API issue: try a shorter Brand override, or use a channel with more room (like Amazon, 200 chars).');
+  }
+}
+
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
 window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();});
@@ -786,6 +806,21 @@ function validate(){
 // per-request timeout (generous - a genuinely large structured-extraction
 // response can legitimately take a while to generate) turns a silent hang
 // into a real, retryable error instead.
+// Round 18: when a 200 OK response comes back with no usable text, the old
+// code just returned '' and the caller (apiCallRetry) reported a generic
+// "empty response" message with no way to tell WHY - was it genuinely
+// truncated (stop_reason "max_tokens"), a content-safety refusal
+// (stop_reason "refusal" on newer API versions), or literally an empty
+// content array with a normal stop_reason (more consistent with a
+// transient upstream/network issue)? Those are different problems needing
+// different fixes, and there was no way to distinguish them from the UI
+// alone - every case just said "empty response," forcing a guessing game.
+// Now the full raw response is logged to the browser console on every
+// empty-text case, and the most useful diagnostic fields (stop_reason,
+// response id) are captured in `lastEmptyResponseDiag` so apiCallRetry can
+// fold them directly into the error message shown on screen - no dev
+// tools needed to see what actually came back.
+var lastEmptyResponseDiag=null;
 async function apiCall(prompt,maxTok,timeoutMs){
   var key=getKey();
   if(!key)throw new Error('No API key set.');
@@ -812,7 +847,14 @@ async function apiCall(prompt,maxTok,timeoutMs){
   }
   if(!res.ok){var e=await res.json();var em=new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);em.status=res.status;throw em;}
   var d=await res.json();
-  return d.content.map(function(i){return i.text||'';}).join('').trim();
+  var text=d.content.map(function(i){return i.text||'';}).join('').trim();
+  if(!text){
+    lastEmptyResponseDiag={stopReason:d.stop_reason||'(none)',id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
+    console.warn('[ListingIQ] Empty-text API response - full raw body:',d);
+  }else{
+    lastEmptyResponseDiag=null;
+  }
+  return text;
 }
 
 // Up to 5 attempts with backoff (3s, 6s, 12s, 24s - about 45s of patience
@@ -844,7 +886,8 @@ async function apiCallRetry(prompt, maxTok, maxAttempts){
     try {
       var result=await apiCall(prompt,maxTok);
       if(result&&result.trim()!=='')return result;
-      lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.');
+      var diag=lastEmptyResponseDiag?(' [diagnostic: stop_reason='+lastEmptyResponseDiag.stopReason+', response id='+lastEmptyResponseDiag.id+', content block types='+JSON.stringify(lastEmptyResponseDiag.contentBlockTypes)+'] - see browser console for the full raw response.'):'';
+      lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.'+diag);
     } catch(err){
       lastErr=err;
       if(err.status&&NON_RETRYABLE_STATUS[err.status])throw err;
@@ -925,6 +968,7 @@ async function runTab1(isResume){
       } else if(channel==='all'){
         var entry={partNumber:pn,row:rows[i],titles:{}};
         for(var ci=0;ci<chs.length;ci++){
+          checkTitlePrefixFits(CH[chs[ci]],b,pn);
           var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i]);
           var raw=await apiCallRetry(p,300);
           entry.titles[chs[ci]]=enforceLimit(raw,CH[chs[ci]].max);
@@ -932,6 +976,7 @@ async function runTab1(isResume){
         results.t1.push(entry);
         if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry;
       } else {
+        checkTitlePrefixFits(CH[channel],b,pn);
         var p2=buildTitlePrompt(CH[channel],b,pn,rows[i]);
         var raw2=await apiCallRetry(p2,300);
         var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
