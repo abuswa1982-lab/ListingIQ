@@ -135,6 +135,36 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 .consol-count.empty{color:var(--faint);}
 .variant-note{font-size:11px;color:var(--faint);font-family:monospace;margin-top:8px;padding:8px 12px;background:var(--s2);border-left:2px solid var(--gold);border-radius:4px;line-height:1.5;}
 .resilience-note{font-size:11px;color:var(--info);font-family:monospace;padding:8px 12px;background:var(--info-bg);border-left:2px solid var(--info);border-radius:4px;line-height:1.5;margin-bottom:8px;margin-top:8px;}
+.catrule-row{display:flex;align-items:center;gap:8px;margin-top:6px;margin-bottom:2px;font-size:12px;color:var(--muted);font-family:monospace;}
+.catrule-row input[type=checkbox]{width:15px;height:15px;cursor:pointer;}
+.catrule-link{background:none;border:none;color:var(--info);font-family:monospace;font-size:11px;text-decoration:underline;cursor:pointer;padding:0;}
+.catrule-link:hover{color:var(--navy);}
+.catov-overlay{display:none;position:fixed;inset:0;background:rgba(20,18,12,0.55);z-index:500;align-items:flex-start;justify-content:center;padding:3vh 16px;overflow-y:auto;}
+.catov-overlay.on{display:flex;}
+.catov-panel{background:var(--surface);border-radius:var(--rl);max-width:720px;width:100%;padding:1.5rem;margin-bottom:3vh;}
+.catov-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.catov-title{font-size:16px;font-weight:bold;color:var(--navy);}
+.catov-sub{font-size:12px;color:var(--muted);font-family:monospace;margin-bottom:16px;line-height:1.5;}
+.catov-close{background:none;border:none;font-size:20px;color:var(--faint);cursor:pointer;line-height:1;}
+.catcard{border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:12px;background:var(--s2);}
+.catcard.done{border-color:var(--ok-b);background:var(--ok-bg);}
+.catcard-badge{display:inline-block;font-size:10px;font-weight:bold;padding:2px 9px;border-radius:20px;font-family:monospace;text-transform:uppercase;margin-bottom:8px;}
+.catcard-badge.b-new{background:#FAC775;color:#633806;}
+.catcard-badge.b-saved{background:#c8ead8;color:#0a3d22;}
+.catcard-badge.b-possible{background:#c8d8f8;color:#0c2460;}
+.catcard-ex{font-size:11px;color:var(--faint);font-family:monospace;margin-bottom:8px;}
+.catcard-title-box{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;font-family:Georgia,serif;background:#fff;color:var(--text);margin-top:4px;min-height:38px;}
+.catcard-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.catcard-btn{padding:7px 14px;font-size:12px;font-family:monospace;border:1px solid var(--border2);border-radius:var(--r);background:transparent;color:var(--text);cursor:pointer;}
+.catcard-btn:hover{background:var(--navy);color:#fff;border-color:var(--navy);}
+.catcard-btn.primary{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:bold;}
+.catcard-btn.primary:hover{background:var(--gold2);}
+.catcard-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.catcard-status{font-size:11px;font-family:monospace;color:var(--ok);margin-top:8px;font-weight:bold;}
+.catov-foot{display:flex;gap:10px;margin-top:8px;padding-top:14px;border-top:1px solid var(--border);}
+.catmgr-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;background:var(--s2);}
+.catmgr-name{font-size:13px;font-weight:bold;color:var(--navy);}
+.catmgr-meta{font-size:11px;color:var(--faint);font-family:monospace;margin-top:2px;}
 @media(max-width:640px){.two-col{grid-template-columns:1fr;}.tab-nav button{font-size:11px;padding:10px 4px;}.tab-nav button .tn{display:none;}.api-inp{width:120px;}header{padding:0 1rem;}.consol-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -297,6 +327,13 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         </div>
         <div class="variant-note">Size is stripped from generated titles, highlights, and specs tables so the output covers all sizes of the product. Color, length, gauge, voltage, and other attributes are kept.</div>
         <div class="resilience-note">Resume-on-failure: if a row fails, the run stops there with completed rows intact. Click Resume to retry that row and continue. Auto-retries each row once on transient errors.</div>
+        <!-- Round 25: category rules - a saved library of per-category title
+             patterns, built up by reviewing and approving (or correcting) one
+             example title per category instead of trying to hand-encode what
+             a "correct" title looks like for every possible product category.
+             See buildCategoryReviewQueue()/renderCategoryReview() below. -->
+        <div class="resilience-note" style="background:var(--s2);color:var(--muted);border-left-color:var(--gold);">Category rules: before generating, similar items are grouped by their Product Type. New or uncertain categories are shown to you for a quick approve/correct - once approved, the same pattern is reused automatically for that category on every future run. <button type="button" class="catrule-link" onclick="openCategoryManager()">Manage saved categories</button></div>
+        <div class="catrule-row"><input type="checkbox" id="t1-catreview-all" onchange="setReviewAllSetting(this.checked)"><label for="t1-catreview-all">Show me every category for review (including ones already saved) - turn this off once you trust the saved patterns</label></div>
         <div class="msg" id="t1-msg"></div>
         <div class="prog-wrap" id="t1-prog"><div class="prog-track"><div class="prog-fill" id="t1-pfill"></div></div><div class="prog-lbl" id="t1-plbl"></div></div>
         <button class="btn btn-navy" id="t1-gen" onclick="runTab1(false)"><span id="t1-lbl">Generate Product Names</span></button>
@@ -404,12 +441,39 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
   </div>
 </main>
 
+<!-- Round 25: category rules - review modal (approve/correct a title pattern
+     per category before generating) and the saved-categories manager. Both
+     are populated dynamically by renderCategoryReview()/renderCategoryManager(). -->
+<div class="catov-overlay" id="catrev-overlay">
+  <div class="catov-panel">
+    <div class="catov-hdr"><div class="catov-title">Review categories before generating</div></div>
+    <div class="catov-sub" id="catrev-sub"></div>
+    <div id="catrev-list"></div>
+    <div class="catov-foot">
+      <button class="btn btn-navy" id="catrev-continue" onclick="continueCategoryReview()" disabled style="width:auto;padding:11px 22px;">Continue &amp; Generate</button>
+      <button class="btn-sm" onclick="cancelCategoryReview()">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="catov-overlay" id="catmgr-overlay">
+  <div class="catov-panel">
+    <div class="catov-hdr"><div class="catov-title">Saved categories</div><button class="catov-close" onclick="closeCategoryManager()">&times;</button></div>
+    <div class="catov-sub">These are the title patterns that have been approved so far. Merge near-duplicates together, rename, or delete a mistake. Export before clearing your browser data - this list only lives in this browser.</div>
+    <div class="exp-row">
+      <button class="btn-sm" onclick="exportCategoryRules()">&#8595; Export (backup)</button>
+      <button class="btn-sm" onclick="document.getElementById('catmgr-import-file').click()">&#8593; Import</button>
+      <input type="file" id="catmgr-import-file" accept=".json" style="display:none;" onchange="importCategoryRules(this.files[0])">
+    </div>
+    <div id="catmgr-list"></div>
+  </div>
+</div>
+
 <script>
 var fileData = null;
 var stops = {t1:false,t2:false,t3:false,t4:false};
 var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
 // resumeFrom is the row index where a run stopped (failure or user-stop). null = no pending resume.
-var runState = {t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
+var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
 
 // Applied to every content-generation prompt (titles, highlights, meta
 // descriptions - anywhere the AI is asked to state a fact about the
@@ -419,19 +483,491 @@ var runState = {t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{res
 // general knowledge of the product category.
 var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.';
 
+// ============================================================================
+// Round 25: Category Rules - a saved, per-category library of approved title
+// patterns, built up over time instead of the app (or a general AI model)
+// trying to already know what a "correct" title looks like for every
+// possible product category (saw blades vs. gloves vs. t-shirts each need
+// completely different attributes, and there is no universal knowledge base
+// for that). Ahmed's own framing: review and approve (or correct) ONE
+// example title per category, and reuse that pattern automatically on every
+// future run - instead of hand-writing rules, or trusting an AI's guess at
+// what matters for a category it's never been shown data for.
+//
+// Design, worked out with Ahmed across a long discussion before building:
+// - A row's category comes from its own "Product Type" field - never
+//   something the user manually assigns per row or per run (assigning it
+//   manually doesn't scale to a real mixed-category file).
+// - Before generating, every row's raw category label is matched against
+//   the saved library: exact match = "saved" (reuse silently), no match at
+//   all = "new" (needs one review), a loose/fuzzy match to something already
+//   saved = "possible" (needs a yes/no: same thing, or a new category?).
+// - A short review list is shown ONCE per distinct category found in the
+//   file (not once per row), before the real generation run starts, so a
+//   file with 200 rows across 8 categories only ever asks about the
+//   categories that actually need a decision.
+// - A "review every category" setting (default ON) additionally surfaces
+//   already-saved categories in that same list purely for reassurance while
+//   trust is being built - flip it off later and only New/Possible show up.
+// - Everything is stored in this browser's localStorage (same place the API
+//   key already lives) with an export/import JSON backup, since there's no
+//   server here to hold it centrally.
+// ============================================================================
+var CATEGORY_LIB_KEY = 'liq_category_rules';
+var CATEGORY_REVIEW_ALL_KEY = 'liq_cat_review_all';
+
+function loadCategoryLibrary(){
+  try{
+    var raw = localStorage.getItem(CATEGORY_LIB_KEY);
+    if(raw){
+      var parsed = JSON.parse(raw);
+      if(parsed && parsed.categories) return parsed;
+    }
+  }catch(e){
+    console.warn('[ListingIQ] failed to load saved category rules from this browser - starting with an empty library.', e);
+  }
+  return {categories:{}};
+}
+function saveCategoryLibrary(){
+  try{
+    localStorage.setItem(CATEGORY_LIB_KEY, JSON.stringify(categoryLibrary));
+  }catch(e){
+    console.warn('[ListingIQ] failed to save category rules to this browser (storage may be full or unavailable).', e);
+    setMsg('t1-msg','Could not save the category rule to this browser\'s storage - it will still be used for the rest of THIS run, but won\'t be remembered next time. '+(e&&e.message?e.message:''),'warn');
+  }
+}
+function getReviewAllSetting(){
+  var v = localStorage.getItem(CATEGORY_REVIEW_ALL_KEY);
+  return v===null ? true : v==='1'; // default ON - show everything until the user turns it off
+}
+function setReviewAllSetting(on){
+  localStorage.setItem(CATEGORY_REVIEW_ALL_KEY, on?'1':'0');
+}
+
+var categoryLibrary = loadCategoryLibrary();
+
+function normalizeCategoryLabel(raw){
+  return (raw||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
+}
+function categoryTokens(norm){
+  return norm.split(/[^a-z0-9]+/).filter(Boolean);
+}
+// Simple Jaccard token-overlap similarity (0-1) - good enough to catch
+// "Torque Wrenches" / "Torque Wrench" / "Wrenches, Torque" / "Sawplanes" vs.
+// "Saw Blades"-style near-duplicates without any external dependency.
+function categorySimilarity(aNorm,bNorm){
+  if(!aNorm || !bNorm) return 0;
+  if(aNorm===bNorm) return 1;
+  var at=categoryTokens(aNorm), bt=categoryTokens(bNorm);
+  if(!at.length || !bt.length) return 0;
+  var setA={}; at.forEach(function(t){setA[t]=1;});
+  var inter=0; bt.forEach(function(t){if(setA[t])inter++;});
+  var union = at.length + bt.length - inter;
+  return union ? inter/union : 0;
+}
+function suggestCategoryName(raw){
+  var s=(raw||'Uncategorized').toString().trim().replace(/\s+/g,' ');
+  if(!s) return 'Uncategorized';
+  return s.replace(/\w\S*/g,function(t){return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();});
+}
+var CATEGORY_POSSIBLE_MATCH_THRESHOLD = 0.4;
+
+// Matches one row's raw category text against the saved library.
+// Returns {status:'new'|'saved'|'possible', canonical, norm, rawLabel, bestGuess, score}
+function matchCategory(rawLabel){
+  var norm = normalizeCategoryLabel(rawLabel);
+  if(!norm) return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel||'',bestGuess:null,score:0};
+  var cats = categoryLibrary.categories;
+  for(var name in cats){
+    var c = cats[name];
+    if((c.rawLabels||[]).indexOf(norm)!==-1 || normalizeCategoryLabel(name)===norm){
+      return {status:'saved',canonical:name,norm:norm,rawLabel:rawLabel,bestGuess:null,score:1};
+    }
+  }
+  var best=null, bestScore=0;
+  for(var name2 in cats){
+    var s = categorySimilarity(norm, normalizeCategoryLabel(name2));
+    (cats[name2].rawLabels||[]).forEach(function(rl){
+      var s2 = categorySimilarity(norm, rl);
+      if(s2>s) s=s2;
+    });
+    if(s>bestScore){bestScore=s; best=name2;}
+  }
+  if(best && bestScore>=CATEGORY_POSSIBLE_MATCH_THRESHOLD){
+    return {status:'possible',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:best,score:bestScore};
+  }
+  return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:null,score:0};
+}
+
+function getRowCategoryRaw(row){
+  var v = row['Product Type'] || row['product type'] || '';
+  return (v||'').toString().trim();
+}
+
+// Scans every row once (cheap - plain text matching, no AI) and builds:
+// - byRowIndex: parallel array, one match result per row (or {status:'none'} if the row has no Product Type at all)
+// - reviewQueue: one entry per DISTINCT category that needs a decision, first-seen order
+function scanCategoriesForRun(rows){
+  var byRowIndex = new Array(rows.length);
+  var seen = {};
+  var queue = [];
+  var reviewAll = getReviewAllSetting();
+  for(var i=0;i<rows.length;i++){
+    var raw = getRowCategoryRaw(rows[i]);
+    if(!raw){ byRowIndex[i] = {status:'none'}; continue; }
+    var m = matchCategory(raw);
+    byRowIndex[i] = m;
+    var key = m.status+'::'+(m.canonical||m.bestGuess||m.norm);
+    if(!seen[key]){
+      seen[key]=true;
+      var needsReview = m.status==='new' || m.status==='possible' || (m.status==='saved' && reviewAll);
+      if(needsReview){
+        queue.push({
+          key:key, status:m.status, rawLabel:m.rawLabel, norm:m.norm,
+          canonical:m.canonical, bestGuess:m.bestGuess,
+          exampleRow:rows[i], exampleIdx:i,
+          suggestedName: m.canonical || suggestCategoryName(m.bestGuess ? m.bestGuess : raw)
+        });
+      }
+    }
+  }
+  return {byRowIndex:byRowIndex, reviewQueue:queue};
+}
+
+// Looks up the approved reference title for row i's category, using the
+// map runTab1() resolved for this run (runState.t1.categoryMap - either
+// just built by the review step, or carried over across a Resume). Returns
+// null if the row has no category match or that category has no saved
+// example yet (falls back to the generic channel rule with no reference).
+function getCategoryExampleForRow(i){
+  var map = runState.t1.categoryMap;
+  if(!map || !map[i]) return null;
+  var cat = categoryLibrary.categories[map[i]];
+  return cat ? (cat.exampleTitle||null) : null;
+}
+
+function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+// ---- Round 25: category review modal ----
+// activeCatReview holds the in-progress review session: the queue of
+// distinct categories needing a decision (one card each), the original
+// per-row match results (to build the final row->category map once
+// decisions are in), and the resolve/reject of the Promise runTab1() is
+// awaiting.
+var activeCatReview = null;
+
+function runCategoryReview(scan,channel,brand){
+  return new Promise(function(resolve,reject){
+    activeCatReview = {
+      queue: scan.reviewQueue.map(function(item){
+        return {
+          key:item.key, status:item.status, rawLabel:item.rawLabel, norm:item.norm,
+          canonical:item.canonical, bestGuess:item.bestGuess,
+          exampleRow:item.exampleRow, exampleIdx:item.exampleIdx,
+          suggestedName:item.suggestedName,
+          decision:null, generating:false, generatedTitle:null, genError:null
+        };
+      }),
+      byRowIndex: scan.byRowIndex,
+      channel: channel,
+      brand: brand,
+      resolve: resolve,
+      reject: reject
+    };
+    var n = activeCatReview.queue.length;
+    document.getElementById('catrev-sub').textContent = n+' categor'+(n===1?'y':'ies')+' found in this file need a quick look before generating - this only happens once per category, not per row.';
+    document.getElementById('catrev-overlay').classList.add('on');
+    renderCategoryReview();
+    activeCatReview.queue.forEach(function(item,idx){
+      if(item.status==='new') generateCategoryPreview(idx);
+    });
+  });
+}
+
+function renderCategoryReview(){
+  if(!activeCatReview) return;
+  var list = document.getElementById('catrev-list');
+  list.innerHTML = activeCatReview.queue.map(function(item,idx){return renderCategoryCard(item,idx);}).join('');
+  var allDone = activeCatReview.queue.every(function(item){return !!item.decision;});
+  document.getElementById('catrev-continue').disabled = !allDone;
+}
+
+function decisionSummary(item){
+  if(!item.decision) return '';
+  if(item.decision.type==='merge') return 'Will use the "'+item.decision.canonicalName+'" pattern.';
+  if(item.decision.type==='confirm') return 'Confirmed - keeping the saved pattern.';
+  return 'Approved as "'+item.decision.canonicalName+'".';
+}
+
+function renderCategoryCard(item,idx){
+  var badgeClass = item.status==='new'?'b-new':(item.status==='saved'?'b-saved':'b-possible');
+  var badgeText = item.status==='new'?'New':(item.status==='saved'?'Saved':'Possible Match');
+  var exPn = getPN(item.exampleRow);
+  var doneNote = item.decision ? '<div class="catcard-status">&#10003; '+esc(decisionSummary(item))+'</div>' : '';
+  var body;
+  if(item.status==='possible'){
+    var existingEx = (categoryLibrary.categories[item.bestGuess]||{}).exampleTitle || '';
+    body = '<div class="catcard-ex">Found: "'+esc(item.rawLabel)+'" (example item '+esc(exPn)+') - this looks similar to your existing category <b>'+esc(item.bestGuess)+'</b>'+(existingEx?' (e.g. "'+esc(existingEx)+'")':'')+'.</div>'+
+      '<div class="catcard-btns">'+
+        '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'merge\')" '+(item.decision?'disabled':'')+'>Yes, same as '+esc(item.bestGuess)+'</button>'+
+        '<button class="catcard-btn" onclick="convertPossibleToNew('+idx+')" '+(item.decision?'disabled':'')+'>No, it\'s new</button>'+
+      '</div>';
+  } else if(item.status==='saved'){
+    var savedEx = (categoryLibrary.categories[item.canonical]||{}).exampleTitle || '';
+    body = '<div class="catcard-ex">Category: <b>'+esc(item.canonical)+'</b> &middot; example item '+esc(exPn)+' - already using this saved pattern.</div>'+
+      '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(savedEx)+'</textarea>'+
+      '<div class="catcard-btns">'+
+        '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'confirm\')" '+(item.decision?'disabled':'')+'>Looks good</button>'+
+      '</div>';
+  } else {
+    // 'new', or a 'possible' the user said was actually new
+    var nameVal = item.suggestedName;
+    var boxContent = item.generatedTitle!=null ? item.generatedTitle : '';
+    var genStatus = item.generating
+      ? '<div class="catcard-ex">Generating a preview title from example item '+esc(exPn)+'...</div>'
+      : (item.genError
+        ? '<div class="catcard-ex" style="color:var(--err);">Preview generation failed: '+esc(item.genError)+' <button class="catcard-btn" onclick="generateCategoryPreview('+idx+')">Retry</button></div>'
+        : '<div class="catcard-ex">Example item '+esc(exPn)+'. Edit the category name or the title below, then approve.</div>');
+    body = genStatus+
+      '<input type="text" class="catcard-title-box" style="font-family:monospace;font-size:12px;margin-bottom:6px;" id="catcard-name-'+idx+'" value="'+esc(nameVal)+'" placeholder="Category name" '+(item.decision?'disabled':'')+'>'+
+      '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+((item.generating||item.decision)?'disabled':'')+'>'+esc(boxContent)+'</textarea>'+
+      '<div class="catcard-btns">'+
+        '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'approve\')" '+((item.decision||item.generating)?'disabled':'')+'>Approve</button>'+
+      '</div>';
+  }
+  return '<div class="catcard'+(item.decision?' done':'')+'"><span class="catcard-badge '+badgeClass+'">'+badgeText+'</span>'+body+doneNote+'</div>';
+}
+
+async function generateCategoryPreview(idx){
+  var item = activeCatReview.queue[idx];
+  item.generating = true; item.genError=null;
+  renderCategoryReview();
+  try{
+    var pn = getPN(item.exampleRow);
+    var b = getBrand(item.exampleRow, activeCatReview.brand);
+    var chConfig = CH[activeCatReview.channel] || CH.website;
+    checkTitlePrefixFits(chConfig,b,pn);
+    var p = buildTitlePrompt(chConfig,b,pn,item.exampleRow,null);
+    var raw = await apiCallRetry(p,4000);
+    item.generatedTitle = enforceLimit(raw,chConfig.max);
+  }catch(e){
+    item.genError = e&&e.message?e.message:String(e);
+  }
+  item.generating = false;
+  renderCategoryReview();
+}
+
+function convertPossibleToNew(idx){
+  var item = activeCatReview.queue[idx];
+  item.status = 'new';
+  item.suggestedName = suggestCategoryName(item.rawLabel);
+  renderCategoryReview();
+  generateCategoryPreview(idx);
+}
+
+function decideCategoryCard(idx,type){
+  var item = activeCatReview.queue[idx];
+  if(type==='merge'){
+    item.decision = {type:'merge',canonicalName:item.bestGuess};
+  } else if(type==='confirm'){
+    var box=document.getElementById('catcard-box-'+idx);
+    var val = box?box.value.trim():'';
+    item.decision = {type:'confirm',canonicalName:item.canonical,title:val};
+  } else if(type==='approve'){
+    var nameBox=document.getElementById('catcard-name-'+idx);
+    var titleBox=document.getElementById('catcard-box-'+idx);
+    var name = (nameBox?nameBox.value.trim():'') || item.suggestedName || 'Uncategorized';
+    var title = titleBox?titleBox.value.trim():'';
+    if(!title){ alert('Enter or wait for a title before approving.'); return; }
+    item.decision = {type:'approve',canonicalName:name,title:title};
+  }
+  renderCategoryReview();
+}
+
+function continueCategoryReview(){
+  if(!activeCatReview) return;
+  var allDone = activeCatReview.queue.every(function(item){return !!item.decision;});
+  if(!allDone) return;
+  var canonicalByKey = {};
+  activeCatReview.queue.forEach(function(item){
+    var d = item.decision;
+    if(d.type==='merge'){
+      var cat = categoryLibrary.categories[d.canonicalName];
+      if(cat){ cat.rawLabels = cat.rawLabels||[]; if(cat.rawLabels.indexOf(item.norm)===-1) cat.rawLabels.push(item.norm); }
+      canonicalByKey[item.key] = d.canonicalName;
+    } else if(d.type==='confirm'){
+      var cat2 = categoryLibrary.categories[d.canonicalName];
+      if(cat2){
+        cat2.rawLabels = cat2.rawLabels||[];
+        if(cat2.rawLabels.indexOf(item.norm)===-1) cat2.rawLabels.push(item.norm);
+        if(d.title) cat2.exampleTitle = d.title;
+      }
+      canonicalByKey[item.key] = d.canonicalName;
+    } else if(d.type==='approve'){
+      var existing = categoryLibrary.categories[d.canonicalName];
+      var rawLabels = existing ? (existing.rawLabels||[]).slice() : [];
+      if(rawLabels.indexOf(item.norm)===-1) rawLabels.push(item.norm);
+      categoryLibrary.categories[d.canonicalName] = {exampleTitle:d.title,exampleItem:getPN(item.exampleRow),rawLabels:rawLabels};
+      canonicalByKey[item.key] = d.canonicalName;
+    }
+  });
+  saveCategoryLibrary();
+  // Build the final per-row canonical-category map from the ORIGINAL scan
+  // results plus what was just decided - not by re-scanning, so it can't
+  // drift from the decisions actually made in this review.
+  var rows = fileData;
+  var finalMap = new Array(rows.length);
+  for(var i=0;i<rows.length;i++){
+    var m = activeCatReview.byRowIndex[i];
+    if(!m || m.status==='none'){ finalMap[i]=null; continue; }
+    var key = m.status+'::'+(m.canonical||m.bestGuess||m.norm);
+    if(Object.prototype.hasOwnProperty.call(canonicalByKey,key)){
+      finalMap[i] = canonicalByKey[key];
+    } else if(m.status==='saved'){
+      finalMap[i] = m.canonical; // wasn't in the review queue (review-all was off) - already resolved
+    } else {
+      finalMap[i] = null;
+    }
+  }
+  var resolveFn = activeCatReview.resolve;
+  document.getElementById('catrev-overlay').classList.remove('on');
+  activeCatReview = null;
+  resolveFn(finalMap);
+}
+
+function cancelCategoryReview(){
+  if(!activeCatReview) return;
+  var rejectFn = activeCatReview.reject;
+  document.getElementById('catrev-overlay').classList.remove('on');
+  activeCatReview = null;
+  rejectFn(new Error('cancelled'));
+}
+
+// ---- Round 25: saved-categories manager (merge/rename/delete + backup) ----
+function openCategoryManager(){
+  renderCategoryManager();
+  document.getElementById('catmgr-overlay').classList.add('on');
+}
+function closeCategoryManager(){
+  document.getElementById('catmgr-overlay').classList.remove('on');
+}
+function renderCategoryManager(){
+  var list = document.getElementById('catmgr-list');
+  var names = Object.keys(categoryLibrary.categories);
+  if(!names.length){
+    list.innerHTML = '<div class="catov-sub" style="margin-bottom:0;">No categories saved yet - they\'ll show up here as you approve them while generating Product Names.</div>';
+    return;
+  }
+  list.innerHTML = names.map(function(name){
+    var cat = categoryLibrary.categories[name];
+    var variantCount = (cat.rawLabels||[]).length;
+    return '<div class="catmgr-row"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in</div></div>'+
+      '<div class="catcard-btns" style="margin-top:0;">'+
+        '<button class="catcard-btn" onclick="renameCategoryPrompt(\''+escJs(name)+'\')">Rename</button>'+
+        '<button class="catcard-btn" onclick="mergeCategoryPrompt(\''+escJs(name)+'\')">Merge into...</button>'+
+        '<button class="catcard-btn" onclick="deleteCategoryPrompt(\''+escJs(name)+'\')">Delete</button>'+
+      '</div></div>';
+  }).join('');
+}
+function renameCategoryPrompt(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat) return;
+  var newName = prompt('Rename category "'+name+'" to:',name);
+  if(newName===null) return;
+  newName = newName.trim();
+  if(!newName || newName===name) return;
+  if(categoryLibrary.categories[newName]){
+    alert('A category named "'+newName+'" already exists - use "Merge into..." instead if you want to combine them.');
+    return;
+  }
+  categoryLibrary.categories[newName] = cat;
+  delete categoryLibrary.categories[name];
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function mergeCategoryPrompt(name){
+  var names = Object.keys(categoryLibrary.categories).filter(function(n){return n!==name;});
+  if(!names.length){ alert('No other saved categories to merge into.'); return; }
+  var target = prompt('Merge "'+name+'" into which existing category? (type the exact name)\n\nAvailable: '+names.join(', '),names[0]);
+  if(target===null) return;
+  target = target.trim();
+  if(!categoryLibrary.categories[target]){ alert('"'+target+'" is not a saved category.'); return; }
+  if(target===name) return;
+  var src = categoryLibrary.categories[name];
+  var dst = categoryLibrary.categories[target];
+  dst.rawLabels = dst.rawLabels || [];
+  (src.rawLabels||[]).forEach(function(rl){ if(dst.rawLabels.indexOf(rl)===-1) dst.rawLabels.push(rl); });
+  var srcNorm = normalizeCategoryLabel(name);
+  if(dst.rawLabels.indexOf(srcNorm)===-1) dst.rawLabels.push(srcNorm);
+  delete categoryLibrary.categories[name];
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function deleteCategoryPrompt(name){
+  if(!confirm('Delete the saved category "'+name+'"? This only removes the saved pattern - it does not affect anything already generated.')) return;
+  delete categoryLibrary.categories[name];
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function exportCategoryRules(){
+  dl(new Blob([JSON.stringify(categoryLibrary,null,2)],{type:'application/json'}),'listingiq-category-rules.json');
+}
+function importCategoryRules(file){
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var parsed = JSON.parse(e.target.result);
+      if(!parsed || typeof parsed.categories !== 'object') throw new Error('This file doesn\'t look like a category rules export.');
+      var incoming = Object.keys(parsed.categories).length;
+      if(!confirm('Import '+incoming+' categor'+(incoming===1?'y':'ies')+' from this file? Matching names will be overwritten with the imported version.')) return;
+      Object.keys(parsed.categories).forEach(function(name){ categoryLibrary.categories[name] = parsed.categories[name]; });
+      saveCategoryLibrary();
+      renderCategoryManager();
+      alert('Imported '+incoming+' categor'+(incoming===1?'y':'ies')+'.');
+    }catch(err){
+      alert('Could not import this file: '+(err&&err.message?err.message:err));
+    }
+  };
+  reader.readAsText(file);
+  document.getElementById('catmgr-import-file').value='';
+}
+
 var CH = {
   amazon:{label:'Amazon',pill:'p-amz',max:200,target:185,
     rule:'Amazon title: MUST start with [Brand] [Part Number]. Then product type, key specs, features, keywords. Target 180-200 characters - under 150 is unacceptable. No special chars (! $ ? _ { }). No word repeated more than twice. Capitalize first letter of each major word.'},
   ebay:{label:'eBay',pill:'p-eby',max:80,target:78,
     rule:'eBay title: MUST start with [Brand] [Part Number]. Then product type and key specs. Hard limit 80 characters. Target 75-80. Use every character.'},
   website:{label:'Website/SEO',pill:'p-web',max:70,target:65,
-    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. Immediately after that, front-load the single most important, most-searched-for attribute (primary product type plus the one spec buyers search on most - e.g. size, material, or use-case), since Google may truncate the visible title in search results and the important part must survive that. Put secondary, less critical details LAST, since those are the characters most likely to get cut off. Target 60-70 characters, hard max 70. Natural language, no keyword stuffing (each meaningful word appears once).'}
+    // Round 24: Ahmed flagged the titles as inconsistent across otherwise-
+    // similar items in the same product line - different rows picked a
+    // different "most important" attribute to front-load, used different
+    // hyphenation for the same term (e.g. "Carbide Tipped" vs "Carbide-
+    // Tipped"), mixed inch notation ("in." vs the inch mark), and put the
+    // same kind of spec in a different position from row to row. The old
+    // rule's "front-load whichever one spec feels most important" framing
+    // is exactly what let every row make its own independent choice. This
+    // rewrite replaces that judgment call with a fixed slot order every
+    // title follows (using whichever slots the source data actually has -
+    // skip a slot only when its data is genuinely absent, never reorder
+    // it), so titles for similar products land in a visibly consistent
+    // shape instead of each looking hand-picked.
+    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. After that, follow this SAME slot order for every title in this run - use whichever slots the source data actually has for THIS item, in this order, skipping only a slot with no data (never reorder or swap slots row to row): 1) primary dimension/size (e.g. width, diameter, length, capacity), 2) material/construction descriptor (e.g. a coating, finish, or build type), 3) product type/category, 4) one differentiating secondary spec (e.g. a count, rate, or grade), if there is room. Reproduce any term\'s spelling, hyphenation, and punctuation EXACTLY as it appears in the source data - never hyphenate a term on one row and not on another, and always use the inch mark (") for inch measurements, never "in." or "inches" spelled out. Target 60-70 characters, hard max 70. If the full structured title would exceed the limit, drop the LAST slot(s) entirely rather than cutting a slot short - never end the title on a bare number with no unit, a dangling connector word (for/with/and/of/etc.), or a trailing comma.'}
 };
 
 var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
 
-function buildTitlePrompt(chConfig,brand,pn,row){
-  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
+// Round 25: categoryExample, when given, is an already-APPROVED reference
+// title for this exact row's category (either approved just now in this
+// run's review step, or saved from a previous run). This is fed to the
+// model as a concrete pattern to match, on top of (not instead of) the
+// channel's own structural rule - the rule sets the general shape, the
+// example pins down the specific, category-appropriate details (which
+// attribute actually matters for THIS category) that no generic rule can
+// know on its own.
+function buildTitlePrompt(chConfig,brand,pn,row,categoryExample){
+  var exampleBlock = categoryExample ? '\n\nA title for this exact product category was already reviewed and approved earlier: "'+categoryExample+'"\nMatch that same structure, attribute order, and formatting style as closely as this item\'s own data allows - adjust the actual content for THIS item, but keep the same shape so every title in this category looks consistent.' : '';
+  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+exampleBlock+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
 }
 
 // Round 18: Website (hard max 70) and eBay (hard max 80) both require the
@@ -463,12 +999,12 @@ function checkTitlePrefixFits(chConfig,brand,pn){
 
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
-window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();});
+window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();});
 
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
   fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
-  runState={t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
+  runState={t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
   document.getElementById('uz').classList.remove('loaded');
   document.getElementById('uz-fname').textContent='';
   document.getElementById('uz-text').textContent='Drop Excel or CSV here, or click to browse';
@@ -792,12 +1328,34 @@ function showResume(t,show,idx){
   }
 }
 
+// Round 24: a plain word-boundary cut can still land on a fragment that
+// reads as broken, not just shorter - e.g. "...1" Width, 3" (a bare
+// trailing number with its unit chopped off) or "...Band Saw Blade for"
+// (a dangling connector word with nothing after it), both seen in
+// Ahmed's real exported titles. Strip one more "incomplete-looking"
+// trailing token (repeating, in case removing one reveals another) so a
+// title that has to be shortened ends cleanly instead of mid-thought.
+var DANGLING_TRAILING_WORD = /\b(for|with|and|or|of|the|a|an|to)$/i;
 function enforceLimit(title,max){
   if(!title||title.length<=max)return title;
   var cut=title.substring(0,max);
   var ls=cut.lastIndexOf(' ');
   if(ls>max*0.6)cut=cut.substring(0,ls);
-  return cut.replace(/[\s,;:\-]+$/,'');
+  cut=cut.replace(/[\s,;:\-]+$/,'');
+  var trimmedAgain=true;
+  while(trimmedAgain){
+    trimmedAgain=false;
+    var bareTrailingNumber=/(^|\s)\d+$/.test(cut)&&!/\d+["']$/.test(cut);
+    var danglingWord=DANGLING_TRAILING_WORD.test(cut);
+    if(bareTrailingNumber||danglingWord){
+      var lastSp=cut.lastIndexOf(' ');
+      if(lastSp>0){
+        cut=cut.substring(0,lastSp).replace(/[\s,;:\-]+$/,'');
+        trimmedAgain=true;
+      }
+    }
+  }
+  return cut;
 }
 
 function toSlug(str){
@@ -923,6 +1481,7 @@ async function runTab1(isResume){
   var rows=fileData;
   var startIdx;
   var channel;
+  var isFreshRun;
   // Lock the output channel to whatever it was when this run STARTED, and
   // keep using that for the whole run - including any Resume - even if the
   // dropdown gets changed in between. Without this, changing the channel
@@ -932,6 +1491,7 @@ async function runTab1(isResume){
   if(isResume && runState.t1.resumeFrom != null){
     channel = runState.t1.channel;
     startIdx = runState.t1.resumeFrom;
+    isFreshRun = false;
     var domChannel = document.getElementById('t1-channel').value;
     if(domChannel !== channel){
       var lockedLabel = channel==='all' ? 'All three channels' : (CH[channel] ? CH[channel].label : channel);
@@ -945,6 +1505,7 @@ async function runTab1(isResume){
     startIdx = 0;
     results.t1=[];
     runState.t1.resumeFrom = null;
+    isFreshRun = true;
   }
 
   // Round 20: defensive repair for "Cannot read properties of undefined
@@ -963,6 +1524,31 @@ async function runTab1(isResume){
     channel=repaired;
     runState.t1.channel=channel;
     setMsg('t1-msg','This run\'s output channel setting was not recognized (this can happen after switching app versions mid-run) - continuing with "'+CH[channel].label+'" instead. If any earlier rows in the table look wrong, re-generate them.','warn');
+  }
+
+  // Round 25: category review gate. Only on a genuinely fresh run - a
+  // Resume continues with whatever category assignments this run already
+  // resolved (runState.t1.categoryMap), same pattern as the channel lock
+  // above. Scanning is plain text matching against the saved library (no
+  // AI, no cost); the review modal itself is what may call the API once
+  // per NEW/uncertain category to generate a preview title to approve.
+  if(isFreshRun){
+    var catScan = scanCategoriesForRun(rows);
+    if(catScan.reviewQueue.length){
+      btn.disabled=false; showStop('t1',false);
+      var outcome;
+      try{
+        outcome = await runCategoryReview(catScan, channel, brand);
+      }catch(cancelErr){
+        setMsg('t1-msg','Category review cancelled - nothing was generated. Click Generate again when ready.','warn');
+        return;
+      }
+      runState.t1.categoryMap = outcome;
+      btn.disabled=true; stops.t1=false; showStop('t1',true); showResume('t1',false);
+      setMsg('t1-msg','','');
+    } else {
+      runState.t1.categoryMap = catScan.byRowIndex.map(function(m){return (m&&m.canonical)?m.canonical:null;});
+    }
   }
 
   document.getElementById('t1-res').classList.add('on');
@@ -985,6 +1571,10 @@ async function runTab1(isResume){
       var b=getBrand(rows[i],brand);
       var bKey=baseItemKey(pn);
       var cached1=(reuseVariantsOn()&&bKey)?variantCache1[bKey]:null;
+      // Round 25: if this row's category was matched to a saved/approved
+      // pattern (either just now in the review step, or from a previous
+      // run), pull its reference example title to feed into the prompt.
+      var catExample = getCategoryExampleForRow(i);
       if(cached1){
         if(channel==='all'){
           var reusedEntry={partNumber:pn,row:rows[i],titles:{},reusedFrom:cached1.partNumber};
@@ -1000,7 +1590,7 @@ async function runTab1(isResume){
         var entry={partNumber:pn,row:rows[i],titles:{}};
         for(var ci=0;ci<chs.length;ci++){
           checkTitlePrefixFits(CH[chs[ci]],b,pn);
-          var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i]);
+          var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i],catExample);
           // Round 22 raised this 300->2000; round 23 raised it again to
           // 4000 - see the note below on the single-channel call.
           var raw=await apiCallRetry(p,4000);
@@ -1010,7 +1600,7 @@ async function runTab1(isResume){
         if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry;
       } else {
         checkTitlePrefixFits(CH[channel],b,pn);
-        var p2=buildTitlePrompt(CH[channel],b,pn,rows[i]);
+        var p2=buildTitlePrompt(CH[channel],b,pn,rows[i],catExample);
         // Round 22: this 300-token budget is the real root cause of the
         // rounds 18-19 "empty response" mystery on Product Name - Ahmed's
         // round-18 diagnostic surfacing finally caught it live:
