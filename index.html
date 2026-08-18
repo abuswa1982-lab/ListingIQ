@@ -467,6 +467,20 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <div id="catmgr-list"></div>
   </div>
 </div>
+<!-- Round 25b: brand-mismatch confirmation - shown once, before generating,
+     only when the typed Brand override disagrees with what the file's own
+     Brand column actually says. -->
+<div class="catov-overlay" id="brandcheck-overlay">
+  <div class="catov-panel" style="max-width:560px;">
+    <div class="catov-hdr"><div class="catov-title">Brand mismatch</div></div>
+    <div class="catov-sub" id="brandcheck-msg"></div>
+    <div class="catov-foot">
+      <button class="btn btn-navy" id="brandcheck-use-override" style="width:auto;padding:11px 22px;">Use my override</button>
+      <button class="btn-sm" id="brandcheck-use-file">Use each row's own Brand data</button>
+      <button class="btn-sm" onclick="cancelBrandCheck()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <script>
 var fileData = null;
@@ -604,10 +618,75 @@ function getRowCategoryRaw(row){
   return (v||'').toString().trim();
 }
 
+// Round 25b: Ahmed's concern - a saved category's example title is only
+// ever as correct as it was the moment it got approved. If it was approved
+// with a wrong/stale brand baked in, the app has no way to know that on its
+// own later - it just keeps reusing it. This checks whether a saved
+// category's stored example actually starts with the brand THIS run is
+// really using (its own file data, or a corrected override) - if not, that
+// saved category gets flagged for a look even with "review every category"
+// turned off, since a brand mismatch is a correctness issue, not a
+// preference one.
+function categoryExampleBrandMismatch(cat,brand){
+  if(!cat || !cat.exampleTitle || !brand) return false;
+  var norm = cat.exampleTitle.trim().toLowerCase();
+  return norm.indexOf(brand.trim().toLowerCase())!==0;
+}
+
+// Round 25b: Ahmed's other worry - the "Brand override" field is absolute
+// (getBrand() lets it win over every row's own real Brand data, silently,
+// for the whole run). A typo or wrong brand typed there used to propagate
+// through the entire export with no check. This scans the file's own real
+// Brand-column data (ignoring the override) and reports whether it
+// disagrees with what was typed, so runBrandCheck() can ask before
+// anything generates instead of after.
+function scanBrandConsistency(rows,overrideBrand){
+  var ov = (overrideBrand||'').trim();
+  if(!ov) return {hasOverride:false, mismatch:false, fileBrands:[]};
+  var counts = {};
+  rows.forEach(function(r){
+    var real = (r['Brand']||r['brand']||r['Manufacturer']||r['manufacturer']||r['MFR']||'').toString().trim();
+    if(real) counts[real] = (counts[real]||0)+1;
+  });
+  var fileBrands = Object.keys(counts).map(function(k){return {value:k,count:counts[k]};}).sort(function(a,b){return b.count-a.count;});
+  var mismatch = fileBrands.some(function(fb){return fb.value.toLowerCase()!==ov.toLowerCase();});
+  return {hasOverride:true, overrideValue:ov, fileBrands:fileBrands, mismatch:mismatch};
+}
+
+// Shows a one-time confirmation ONLY when the typed override disagrees with
+// what the file's own Brand column actually says. Resolves with whichever
+// brand string should actually be used for the rest of this run: the
+// override, unchanged ('' means "use each row's own Brand data instead").
+// No mismatch (or no override at all) resolves immediately with no UI.
+var __brandCheckCancel = null;
+function runBrandCheck(rows,overrideBrand){
+  return new Promise(function(resolve,reject){
+    var info = scanBrandConsistency(rows,overrideBrand);
+    if(!info.hasOverride || !info.mismatch){ resolve(overrideBrand); return; }
+    var top = info.fileBrands.slice(0,4).map(function(fb){return '"'+fb.value+'" ('+fb.count+' row'+(fb.count===1?'':'s')+')';}).join(', ');
+    document.getElementById('brandcheck-msg').textContent = 'You set the Brand override to "'+info.overrideValue+'", but this file\'s own Brand column shows: '+top+'. Which should be used for the rest of this run?';
+    document.getElementById('brandcheck-overlay').classList.add('on');
+    var useOverrideBtn = document.getElementById('brandcheck-use-override');
+    var useFileBtn = document.getElementById('brandcheck-use-file');
+    function cleanup(){
+      document.getElementById('brandcheck-overlay').classList.remove('on');
+      useOverrideBtn.onclick=null; useFileBtn.onclick=null; __brandCheckCancel=null;
+    }
+    useOverrideBtn.textContent = 'Use my override ("'+info.overrideValue+'")';
+    useOverrideBtn.onclick = function(){ cleanup(); resolve(overrideBrand); };
+    useFileBtn.onclick = function(){ cleanup(); resolve(''); };
+    __brandCheckCancel = function(){ cleanup(); reject(new Error('cancelled')); };
+  });
+}
+function cancelBrandCheck(){ if(__brandCheckCancel) __brandCheckCancel(); }
+
 // Scans every row once (cheap - plain text matching, no AI) and builds:
 // - byRowIndex: parallel array, one match result per row (or {status:'none'} if the row has no Product Type at all)
 // - reviewQueue: one entry per DISTINCT category that needs a decision, first-seen order
-function scanCategoriesForRun(rows){
+// resolvedBrand is the brand override AFTER the round-25b brand-consistency
+// check (runBrandCheck()) has already resolved it - used only to detect a
+// saved category whose stored example's brand no longer matches this run.
+function scanCategoriesForRun(rows,resolvedBrand){
   var byRowIndex = new Array(rows.length);
   var seen = {};
   var queue = [];
@@ -618,15 +697,18 @@ function scanCategoriesForRun(rows){
     var m = matchCategory(raw);
     byRowIndex[i] = m;
     var key = m.status+'::'+(m.canonical||m.bestGuess||m.norm);
+    var rowBrand = getBrand(rows[i],resolvedBrand);
+    var brandMismatch = m.status==='saved' && categoryExampleBrandMismatch(categoryLibrary.categories[m.canonical],rowBrand);
     if(!seen[key]){
       seen[key]=true;
-      var needsReview = m.status==='new' || m.status==='possible' || (m.status==='saved' && reviewAll);
+      var needsReview = m.status==='new' || m.status==='possible' || (m.status==='saved' && (reviewAll || brandMismatch));
       if(needsReview){
         queue.push({
           key:key, status:m.status, rawLabel:m.rawLabel, norm:m.norm,
           canonical:m.canonical, bestGuess:m.bestGuess,
           exampleRow:rows[i], exampleIdx:i,
-          suggestedName: m.canonical || suggestCategoryName(m.bestGuess ? m.bestGuess : raw)
+          suggestedName: m.canonical || suggestCategoryName(m.bestGuess ? m.bestGuess : raw),
+          brandMismatch: brandMismatch, mismatchBrand: brandMismatch?rowBrand:null
         });
       }
     }
@@ -665,6 +747,7 @@ function runCategoryReview(scan,channel,brand){
           canonical:item.canonical, bestGuess:item.bestGuess,
           exampleRow:item.exampleRow, exampleIdx:item.exampleIdx,
           suggestedName:item.suggestedName,
+          brandMismatch:item.brandMismatch, mismatchBrand:item.mismatchBrand,
           decision:null, generating:false, generatedTitle:null, genError:null
         };
       }),
@@ -686,10 +769,47 @@ function runCategoryReview(scan,channel,brand){
 
 function renderCategoryReview(){
   if(!activeCatReview) return;
+  // Round 25b: this can re-render while a preview is still generating (the
+  // elapsed-time ticker below), which replaces the whole card's HTML - so
+  // capture whatever the user has typed into the name/title boxes BEFORE
+  // wiping the DOM, or a live re-render would silently erase in-progress
+  // typing. Sync happens every render, so this is always up to date.
+  activeCatReview.queue.forEach(function(item,idx){
+    var nameBox=document.getElementById('catcard-name-'+idx);
+    var titleBox=document.getElementById('catcard-box-'+idx);
+    if(nameBox) item.userName = nameBox.value;
+    if(titleBox) item.userTitle = titleBox.value;
+  });
   var list = document.getElementById('catrev-list');
   list.innerHTML = activeCatReview.queue.map(function(item,idx){return renderCategoryCard(item,idx);}).join('');
   var allDone = activeCatReview.queue.every(function(item){return !!item.decision;});
   document.getElementById('catrev-continue').disabled = !allDone;
+}
+
+// Round 25b: fixes a real stuck-modal report - Ahmed hit a card stuck on
+// "Generating a preview title..." with the Approve button disabled and no
+// way to proceed. The textarea/Approve are no longer disabled while
+// generating (see renderCategoryCard), but without a live-updating elapsed
+// time, a genuinely slow real API call (apiCallRetry's retry/backoff can
+// legitimately take several minutes under real network conditions - the
+// same ambiguity round 14 solved for extraction) looks identical to a
+// silent hang. This ticker keeps the card's elapsed-time label moving so
+// "still working" is visibly distinguishable from "frozen", and stops
+// itself once nothing is generating anymore.
+var catGenTicker = null;
+function ensureCatGenTicker(){
+  if(catGenTicker) return;
+  catGenTicker = setInterval(function(){
+    if(!activeCatReview || !activeCatReview.queue.some(function(i){return i.generating;})){
+      clearInterval(catGenTicker); catGenTicker=null; return;
+    }
+    renderCategoryReview();
+  },2000);
+}
+function catGenElapsedLabel(item){
+  if(!item.genStartedAt) return 'just started';
+  var secs = Math.max(0,Math.round((Date.now()-item.genStartedAt)/1000));
+  return secs<60 ? secs+'s' : (Math.floor(secs/60)+'m '+(secs%60)+'s');
 }
 
 function decisionSummary(item){
@@ -714,25 +834,42 @@ function renderCategoryCard(item,idx){
       '</div>';
   } else if(item.status==='saved'){
     var savedEx = (categoryLibrary.categories[item.canonical]||{}).exampleTitle || '';
+    // Round 25b: prefer any live user edit (synced in renderCategoryReview)
+    // over the stored value, same reasoning as the 'new' branch below - a
+    // periodic re-render must never erase an in-progress correction.
+    var savedBoxVal = (item.userTitle && item.userTitle.trim()!=='') ? item.userTitle : savedEx;
+    var mismatchNote = item.brandMismatch
+      ? '<div class="catcard-ex" style="color:var(--warn);">Heads up: this saved example starts with a different brand than what\'s actually being used for this run ("'+esc(item.mismatchBrand)+'"). Fix the text below if that\'s a mistake, or leave it and click "Looks good" if it\'s intentional.</div>'
+      : '';
     body = '<div class="catcard-ex">Category: <b>'+esc(item.canonical)+'</b> &middot; example item '+esc(exPn)+' - already using this saved pattern.</div>'+
-      '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(savedEx)+'</textarea>'+
+      mismatchNote+
+      '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(savedBoxVal)+'</textarea>'+
       '<div class="catcard-btns">'+
         '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'confirm\')" '+(item.decision?'disabled':'')+'>Looks good</button>'+
       '</div>';
   } else {
-    // 'new', or a 'possible' the user said was actually new
-    var nameVal = item.suggestedName;
-    var boxContent = item.generatedTitle!=null ? item.generatedTitle : '';
+    // 'new', or a 'possible' the user said was actually new. Round 25b:
+    // the textarea/Approve button are NEVER disabled just because a preview
+    // is still generating - a slow or genuinely stuck AI call must not be
+    // able to block the user from typing their own title and approving it
+    // immediately. Only a finalized decision disables the card.
+    // Prefer whatever the user has actually typed (synced in
+    // renderCategoryReview) over the suggested/AI-generated defaults, so a
+    // periodic re-render (the elapsed-time ticker) never overwrites
+    // in-progress typing. An empty title box still falls back to the AI
+    // result once it arrives, since an empty box was never a real edit.
+    var nameVal = item.userName!=null ? item.userName : item.suggestedName;
+    var boxContent = (item.userTitle && item.userTitle.trim()!=='') ? item.userTitle : (item.generatedTitle!=null ? item.generatedTitle : '');
     var genStatus = item.generating
-      ? '<div class="catcard-ex">Generating a preview title from example item '+esc(exPn)+'...</div>'
+      ? '<div class="catcard-ex">Generating a preview title from example item '+esc(exPn)+'... ('+catGenElapsedLabel(item)+') - taking a while? You don\'t have to wait: type your own title below and click Approve.</div>'
       : (item.genError
-        ? '<div class="catcard-ex" style="color:var(--err);">Preview generation failed: '+esc(item.genError)+' <button class="catcard-btn" onclick="generateCategoryPreview('+idx+')">Retry</button></div>'
+        ? '<div class="catcard-ex" style="color:var(--err);">Preview generation failed: '+esc(item.genError)+' <button class="catcard-btn" onclick="generateCategoryPreview('+idx+')">Retry</button> - or just type your own title below and click Approve.</div>'
         : '<div class="catcard-ex">Example item '+esc(exPn)+'. Edit the category name or the title below, then approve.</div>');
     body = genStatus+
       '<input type="text" class="catcard-title-box" style="font-family:monospace;font-size:12px;margin-bottom:6px;" id="catcard-name-'+idx+'" value="'+esc(nameVal)+'" placeholder="Category name" '+(item.decision?'disabled':'')+'>'+
-      '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+((item.generating||item.decision)?'disabled':'')+'>'+esc(boxContent)+'</textarea>'+
+      '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(boxContent)+'</textarea>'+
       '<div class="catcard-btns">'+
-        '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'approve\')" '+((item.decision||item.generating)?'disabled':'')+'>Approve</button>'+
+        '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'approve\')" '+(item.decision?'disabled':'')+'>Approve</button>'+
       '</div>';
   }
   return '<div class="catcard'+(item.decision?' done':'')+'"><span class="catcard-badge '+badgeClass+'">'+badgeText+'</span>'+body+doneNote+'</div>';
@@ -740,8 +877,9 @@ function renderCategoryCard(item,idx){
 
 async function generateCategoryPreview(idx){
   var item = activeCatReview.queue[idx];
-  item.generating = true; item.genError=null;
+  item.generating = true; item.genError=null; item.genStartedAt = Date.now();
   renderCategoryReview();
+  ensureCatGenTicker();
   try{
     var pn = getPN(item.exampleRow);
     var b = getBrand(item.exampleRow, activeCatReview.brand);
@@ -863,11 +1001,27 @@ function renderCategoryManager(){
     var variantCount = (cat.rawLabels||[]).length;
     return '<div class="catmgr-row"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in</div></div>'+
       '<div class="catcard-btns" style="margin-top:0;">'+
+        '<button class="catcard-btn" onclick="editCategoryExamplePrompt(\''+escJs(name)+'\')">Edit</button>'+
         '<button class="catcard-btn" onclick="renameCategoryPrompt(\''+escJs(name)+'\')">Rename</button>'+
         '<button class="catcard-btn" onclick="mergeCategoryPrompt(\''+escJs(name)+'\')">Merge into...</button>'+
         '<button class="catcard-btn" onclick="deleteCategoryPrompt(\''+escJs(name)+'\')">Delete</button>'+
       '</div></div>';
   }).join('');
+}
+// Round 25b: Ahmed's ask - a saved category's stored example can go stale
+// (e.g. approved with a wrong brand baked in) and there was previously no
+// direct way to fix its CONTENT - only rename the category, merge it, or
+// delete it outright. This edits the exampleTitle text in place.
+function editCategoryExamplePrompt(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat) return;
+  var newTitle = prompt('Edit the saved example title for "'+name+'":',cat.exampleTitle||'');
+  if(newTitle===null) return;
+  newTitle = newTitle.trim();
+  if(!newTitle){ alert('The example title can\'t be empty.'); return; }
+  cat.exampleTitle = newTitle;
+  saveCategoryLibrary();
+  renderCategoryManager();
 }
 function renameCategoryPrompt(name){
   var cat = categoryLibrary.categories[name];
@@ -1526,6 +1680,21 @@ async function runTab1(isResume){
     setMsg('t1-msg','This run\'s output channel setting was not recognized (this can happen after switching app versions mid-run) - continuing with "'+CH[channel].label+'" instead. If any earlier rows in the table look wrong, re-generate them.','warn');
   }
 
+  // Round 25b: brand-consistency check. Only on a fresh run, before the
+  // category scan (so a corrected brand feeds both the row-generation
+  // prefix AND the saved-category brand-mismatch check below). Silent and
+  // instant unless the typed Brand override actually disagrees with what
+  // the file's own Brand column says.
+  if(isFreshRun){
+    try{
+      brand = await runBrandCheck(rows,brand);
+    }catch(cancelErr){
+      setMsg('t1-msg','Cancelled - nothing was generated.','warn');
+      btn.disabled=false; showStop('t1',false);
+      return;
+    }
+  }
+
   // Round 25: category review gate. Only on a genuinely fresh run - a
   // Resume continues with whatever category assignments this run already
   // resolved (runState.t1.categoryMap), same pattern as the channel lock
@@ -1533,7 +1702,7 @@ async function runTab1(isResume){
   // AI, no cost); the review modal itself is what may call the API once
   // per NEW/uncertain category to generate a preview title to approve.
   if(isFreshRun){
-    var catScan = scanCategoriesForRun(rows);
+    var catScan = scanCategoriesForRun(rows,brand);
     if(catScan.reviewQueue.length){
       btn.disabled=false; showStop('t1',false);
       var outcome;
