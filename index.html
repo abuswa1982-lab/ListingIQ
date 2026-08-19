@@ -291,6 +291,12 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         <button class="btn btn-gold" id="mg3-gen" onclick="buildMasterRecords()" disabled><span id="mg3-lbl">3. Build Master Records</span></button>
         <button class="btn btn-stop" id="mg3-stop" onclick="doStop('mg3')">&#9632; Stop</button>
         <button class="btn" id="mg3-resume" onclick="buildMasterRecords(true)" style="display:none;background:var(--ok);color:#fff;">&#9654; Resume</button>
+        <!-- Round 25c: a single item's record-build failure no longer stops
+             the whole run (see buildMasterRecords()) - this button only
+             shows up if some items still couldn't get a synthesized record
+             after the run finished, so they can be retried without redoing
+             everything already built. -->
+        <button class="btn" id="mg3-retry" onclick="retryFailedMasterRecords()" style="display:none;background:#b45309;color:#fff;">Retry Failed Items</button>
         <div class="uz-sub" id="mg3-gate-hint" style="margin-top:6px;color:var(--muted);">Run Step 2 ("Merge Into Spec Sheet") or "Build Rows From Catalog Only" above first - this button lights up once there's merged data to build records from.</div>
 
         <div class="res-block" id="mg3-res">
@@ -1172,7 +1178,8 @@ function clearAll(){
   updateConsolGrid();
 
   pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];lastPageTexts={};failedChunks=[];
-  validationFlags=[];masterRecords={};masterRecordOrder=[];qaResults=[];
+  validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
+  showMg3RetryBtn(false);
   runState.mg3={resumeFrom:null};
   var uzp=document.getElementById('uz-pdf');if(uzp)uzp.classList.remove('loaded');
   var uzpf=document.getElementById('uz-pdf-fname');if(uzpf)uzpf.textContent='';
@@ -1313,7 +1320,8 @@ function loadFile(f){
       // any merge/master-record work done against whatever spec sheet was
       // loaded before (they were built from the old rows).
       runState={t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
-      mergedForFileData=[];mergedPreviewRows=[];validationFlags=[];masterRecords={};masterRecordOrder=[];qaResults=[];
+      mergedForFileData=[];mergedPreviewRows=[];validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
+      showMg3RetryBtn(false);
       renderValidationSummary();
       var mg2rL=document.getElementById('mg2-res');if(mg2rL)mg2rL.classList.remove('on');
       var mg3rL=document.getElementById('mg3-res');if(mg3rL)mg3rL.classList.remove('on');
@@ -1576,6 +1584,16 @@ async function apiCall(prompt,maxTok,timeoutMs){
   if(!text){
     lastEmptyResponseDiag={stopReason:d.stop_reason||'(none)',id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
     console.warn('[ListingIQ] Empty-text API response - full raw body:',d);
+  }else if(d.stop_reason==='max_tokens'){
+    // Round 26: a response can also come back non-empty but still cut off
+    // mid-answer (e.g. a large catalog-extraction JSON array that ran out of
+    // room partway through). Text-based callers (extraction's truncation
+    // detector) already catch this via structural JSON incompleteness, but
+    // capturing the diagnostic here too means that detector can report the
+    // real stop_reason instead of just "cut off, cause unknown" - same
+    // "no dev tools needed" goal as the empty-response diagnostic above.
+    lastEmptyResponseDiag={stopReason:d.stop_reason,id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
+    console.warn('[ListingIQ] Response hit max_tokens (may be truncated) - full raw body:',d);
   }else{
     lastEmptyResponseDiag=null;
   }
@@ -2325,6 +2343,13 @@ var lastHadPageRange = false;
 var validationFlags = [];    // Phase 2: [{baseKey, partNumber, type:'missing'|'conflict', field, excelValue, pdfValue, detail}]
 var masterRecords = {};      // Phase 3: baseKey -> {technical_specs:{}, features:[], applications:[], sources:'...'}
 var masterRecordOrder = [];  // baseKey build order, for the results table and Excel export
+// Round 25c: {baseKey, excelSpecsText, pdfItemText, pdfFamilyText, error} for
+// items whose record-build call failed (transient - empty response, rate
+// limit, etc.) - tracked separately so a single bad item doesn't stop a
+// 500+ item run. No entry is written to masterRecords for these, so
+// getPromptData() correctly falls back to the item's raw merged row
+// instead of a fake empty record.
+var masterRecordFailures = [];
 var qaResults = [];          // Phase 5: [{baseKey, partNumber, issues:[...]}]
 
 function udragPdf(e,on){e.preventDefault();document.getElementById('uz-pdf').classList.toggle('drag',on);}
@@ -2677,7 +2702,22 @@ async function extractChunkPages(chunkPages, opts){
     // bad 2-page chunk (combined + page A + page B, each doing the full
     // 5-attempt/~45s+ patient retry with no per-page timeout) could run to
     // several minutes with no visible progress update.
-    var resp=await apiCallRetry(buildExtractPrompt(chunkText),8000,opts.isSplitAttempt?3:5);
+    // Round 26: raised from 8000 to 16000. Direct inspection of Ahmed's real
+    // Sterling catalog confirmed pages 6, 10, and 28 are genuinely the
+    // densest in the book (31, 30, and 62 distinct item numbers
+    // respectively - page 28 was already flagged as one of the heaviest
+    // pages back in round 13b). The extraction prompt deliberately forbids
+    // compressing/shortening content (per Ahmed's round 7 no-fabrication/
+    // no-summarizing rule), so a page with 60+ items each needing a full
+    // technical_specs/features/applications record can genuinely need more
+    // than 8000 tokens of JSON output to finish without being cut off -
+    // and since "Retry Failed Pages" re-sends the exact same request with
+    // the exact same budget, a page that needs more room than 8000 allows
+    // will fail identically on every retry, forever, which is exactly what
+    // was reported (the same 3 pages, every time, even after retrying
+    // "a couple times"). Raising the ceiling costs nothing extra unless a
+    // page actually needs it - max_tokens is a budget cap, not a floor.
+    var resp=await apiCallRetry(buildExtractPrompt(chunkText),16000,opts.isSplitAttempt?3:5);
     var parseResult=parseJsonLoose(resp);
     var parsed=parseResult.items;
     var pushedThisAttempt=[];
@@ -2725,8 +2765,14 @@ async function extractChunkPages(chunkPages, opts){
       // keep whatever was salvaged (partial data is better than none) but
       // flag the page as needing manual review via the same failedChunks
       // path a real failure uses, so it can never be mistaken for a
-      // complete, trustworthy read of that page.
-      catalogEntries.push({item_no:null,family:'[extraction warning: page '+rangeLabel+' - response cut off, '+pushedThisAttempt.length+' item(s) recovered but this page may have more]',content:'The response exceeded the length budget even for this single page.',_srcPages:chunkPages.slice()});
+      // complete, trustworthy read of that page. Round 26: fold in the real
+      // stop_reason when available (captured by apiCall() even for a
+      // non-empty-but-truncated response) instead of just guessing "length
+      // budget" - if this recurs even at the higher 16000-token ceiling,
+      // the message itself will confirm it's still a max_tokens cutoff
+      // rather than something else, no dev tools needed.
+      var truncDiag=lastEmptyResponseDiag?(' [diagnostic: stop_reason='+lastEmptyResponseDiag.stopReason+', response id='+lastEmptyResponseDiag.id+'] - if this keeps happening on the same page even after retrying, that page likely has more items than fit in one request - see browser console for the full raw response.'):'';
+      catalogEntries.push({item_no:null,family:'[extraction warning: page '+rangeLabel+' - response cut off, '+pushedThisAttempt.length+' item(s) recovered but this page may have more]',content:'The response exceeded the length budget even for this single page.'+truncDiag,_srcPages:chunkPages.slice()});
       failedChunks.push({pages:chunkPages,rangeLabel:rangeLabel});
       return false;
     }
@@ -3099,9 +3145,10 @@ async function buildMasterRecords(isResume){
   });
 
   var startIdx=(isResume&&runState.mg3.resumeFrom!=null)?runState.mg3.resumeFrom:0;
-  if(!isResume){masterRecords={};masterRecordOrder=[];}
+  if(!isResume){masterRecords={};masterRecordOrder=[];masterRecordFailures=[];}
   setMsg('mg3-msg',isResume?('Resuming from item '+(startIdx+1)+'...'):'','info');
   document.getElementById('mg3-res').classList.add('on');
+  if(!isResume)showMg3RetryBtn(false);
   renderMasterRecords();
 
   for(var i=startIdx;i<items.length;i++){
@@ -3141,29 +3188,117 @@ async function buildMasterRecords(isResume){
       if(masterRecordOrder.indexOf(it.baseKey)===-1)masterRecordOrder.push(it.baseKey);
       renderMasterRecords();
     }catch(err){
-      runState.mg3.resumeFrom=i;
-      setMsg('mg3-msg','Failed at item '+(i+1)+' of '+items.length+': '+err.message+'. '+masterRecordOrder.length+' master record(s) built so far. Click Resume to retry from this item.','error');
-      setProg('mg3',0,'');
-      showResume('mg3',true,i);
-      btn.disabled=false;
-      document.getElementById('mg3-lbl').textContent='3. Build Master Records';
-      showStop('mg3',false);
-      return;
+      // Round 25c: a bad API key or other hard client error (401/403/etc.)
+      // means every subsequent call will fail the same way too, so it still
+      // makes sense to stop the whole run and let Resume retry from here
+      // once the real problem (e.g. the key) is fixed. But most failures at
+      // this step are transient and per-item - an empty/cut-off response
+      // (the max_tokens/"thinking"-only cutoff seen live on a 514-item run),
+      // a rate limit, a momentary API hiccup - and have nothing to do with
+      // the OTHER 513 items in the run. Blocking the whole run on one bad
+      // item (and, worse, getting stuck retrying that same bad item on every
+      // Resume) is exactly the problem Ahmed hit. So: hard-stop only for
+      // non-retryable client errors; for everything else, record the failure
+      // and move on to the next item, same philosophy as failedChunks in
+      // extraction (round 11).
+      if(err.status&&NON_RETRYABLE_STATUS[err.status]){
+        runState.mg3.resumeFrom=i;
+        setMsg('mg3-msg','Failed at item '+(i+1)+' of '+items.length+': '+err.message+'. '+masterRecordOrder.length+' master record(s) built so far. Click Resume to retry from this item.','error');
+        setProg('mg3',0,'');
+        showResume('mg3',true,i);
+        btn.disabled=false;
+        document.getElementById('mg3-lbl').textContent='3. Build Master Records';
+        showStop('mg3',false);
+        return;
+      }
+      masterRecordFailures.push({baseKey:it.baseKey,excelSpecsText:it.excelSpecsText,pdfItemText:it.pdfItemText,pdfFamilyText:it.pdfFamilyText,error:err.message||String(err)});
+      renderMasterRecords();
     }
   }
 
   setProg('mg3',100,'');
   setTimeout(function(){setProg('mg3',0,'');},400);
-  setMsg('mg3-msg',masterRecordOrder.length+' master record(s) built for '+items.length+' unique item(s). Product Name/Highlights/Description/HTML Table will use these automatically from here on.','success');
+  var failNote=masterRecordFailures.length?(' '+masterRecordFailures.length+' item(s) could not be built (shown below, click "Retry Failed Items" to try again) - Product Name and the other tabs will use the raw merged row for those instead, so nothing is blocked.'):'';
+  setMsg('mg3-msg',masterRecordOrder.length+' master record(s) built for '+items.length+' unique item(s).'+failNote+' Product Name/Highlights/Description/HTML Table will use these automatically from here on.',masterRecordFailures.length?'warn':'success');
+  showMg3RetryBtn(masterRecordFailures.length>0);
   runState.mg3.resumeFrom=null;
   btn.disabled=false;
   document.getElementById('mg3-lbl').textContent='3. Build Master Records';
   showStop('mg3',false);
 }
 
+function showMg3RetryBtn(show){
+  var b=document.getElementById('mg3-retry');
+  if(b)b.style.display=show?'inline-block':'none';
+}
+
+// Round 25c: re-runs only the items whose master-record build failed last
+// time (mirrors retryFailedPages() for extraction) - uses the cached
+// excelSpecsText/pdfItemText/pdfFamilyText already captured at failure time,
+// so there's no need to re-read the merged sheet or redo any of the items
+// that already succeeded.
+async function retryFailedMasterRecords(){
+  if(!masterRecordFailures.length)return;
+  var toRetry=masterRecordFailures.slice();
+  masterRecordFailures=[];
+  showMg3RetryBtn(false);
+
+  var btn=document.getElementById('mg3-gen');
+  btn.disabled=true;stops.mg3=false;showStop('mg3',true);showResume('mg3',false);
+  setMsg('mg3-msg','Retrying '+toRetry.length+' failed item(s)...','info');
+  renderMasterRecords();
+
+  for(var i=0;i<toRetry.length;i++){
+    if(stops.mg3){
+      setMsg('mg3-msg','Stopped retrying. '+masterRecordFailures.length+' item(s) still unresolved.','warn');
+      break;
+    }
+    setProg('mg3',Math.round((i/toRetry.length)*95),'Retrying item '+(i+1)+' of '+toRetry.length);
+    document.getElementById('mg3-lbl').innerHTML='<span class="spinner"></span>Retrying '+(i+1)+' / '+toRetry.length;
+    var it=toRetry[i];
+    try{
+      var conflicts=validationFlags.filter(function(f){return f.baseKey===it.baseKey&&f.type==='conflict';});
+      var hasExcel=!!(it.excelSpecsText&&it.excelSpecsText.trim());
+      var hasPdf=!!((it.pdfItemText&&it.pdfItemText.trim())||(it.pdfFamilyText&&it.pdfFamilyText.trim()));
+      if(!hasExcel&&!hasPdf){
+        masterRecords[it.baseKey]={technical_specs:{},features:[],applications:[],sources:'None'};
+      } else {
+        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000);
+        var parsed=parseJsonObjectLoose(resp);
+        var rec={technical_specs:{},features:[],applications:[]};
+        if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
+          if(parsed.technical_specs&&typeof parsed.technical_specs==='object'&&!Array.isArray(parsed.technical_specs))rec.technical_specs=parsed.technical_specs;
+          if(Array.isArray(parsed.features))rec.features=parsed.features.map(function(f){return String(f).trim();}).filter(Boolean);
+          if(Array.isArray(parsed.applications))rec.applications=parsed.applications.map(function(a){return String(a).trim();}).filter(Boolean);
+        }
+        var sourcesUsed=[];
+        if(hasExcel)sourcesUsed.push('Excel');
+        if(hasPdf)sourcesUsed.push('Catalog PDF');
+        rec.sources=sourcesUsed.join(' + ');
+        masterRecords[it.baseKey]=rec;
+      }
+      if(masterRecordOrder.indexOf(it.baseKey)===-1)masterRecordOrder.push(it.baseKey);
+      renderMasterRecords();
+    }catch(err){
+      masterRecordFailures.push({baseKey:it.baseKey,excelSpecsText:it.excelSpecsText,pdfItemText:it.pdfItemText,pdfFamilyText:it.pdfFamilyText,error:err.message||String(err)});
+    }
+    if(i+1<toRetry.length&&!stops.mg3)await new Promise(function(r){setTimeout(r,400);});
+  }
+
+  setProg('mg3',100,'');
+  setTimeout(function(){setProg('mg3',0,'');},400);
+  var failNote=masterRecordFailures.length?(' '+masterRecordFailures.length+' item(s) still could not be built.'):' All previously failed items were built successfully.';
+  setMsg('mg3-msg',masterRecordOrder.length+' master record(s) built total.'+failNote,masterRecordFailures.length?'warn':'success');
+  showMg3RetryBtn(masterRecordFailures.length>0);
+  btn.disabled=false;
+  document.getElementById('mg3-lbl').textContent='3. Build Master Records';
+  showStop('mg3',false);
+  renderMasterRecords();
+}
+
 function renderMasterRecords(){
   var tbody=document.getElementById('mg3-tbody');
-  if(!masterRecordOrder.length){
+  if(!masterRecordOrder.length&&!masterRecordFailures.length){
     tbody.innerHTML='<tr><td colspan="5" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No master records yet.</td></tr>';
     document.getElementById('mg3-meta').textContent='0 records';
     return;
@@ -3177,8 +3312,17 @@ function renderMasterRecords(){
     var specsText=Object.keys(r.technical_specs||{}).map(function(k){return k+': '+r.technical_specs[k];}).join(', ');
     rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+'</td><td class="td-main">'+esc((r.features||[]).join('; ').slice(0,120))+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+'</td></tr>';
   }
+  // Round 25c: failed items (skipped, not blocked) show up as their own rows
+  // so it's visible which items still need "Retry Failed Items" - Product
+  // Name/etc. already fall back to the raw merged row for these in the
+  // meantime, so nothing is missing from the rest of the pipeline.
+  masterRecordFailures.forEach(function(f){
+    rows+='<tr style="background:rgba(180,83,9,0.08);"><td class="td-pn">'+esc(f.baseKey)+'</td><td colspan="4" style="color:#b45309;">⚠ Failed to build: '+esc(f.error||'')+' - using raw merged row data instead. Click "Retry Failed Items" to try again.</td></tr>';
+  });
   tbody.innerHTML=rows;
-  document.getElementById('mg3-meta').textContent=masterRecordOrder.length+' record(s)'+(masterRecordOrder.length>300?' (showing first 300)':'');
+  var meta=masterRecordOrder.length+' record(s)'+(masterRecordOrder.length>300?' (showing first 300)':'');
+  if(masterRecordFailures.length)meta+=', '+masterRecordFailures.length+' failed (skipped)';
+  document.getElementById('mg3-meta').textContent=meta;
 }
 
 function downloadMasterRecords(){
@@ -3574,7 +3718,8 @@ function buildRowsFromCatalogOnly(){
   var brand=document.getElementById('mg-brand').value.trim();
   var seen={};
   mergedForFileData=[];mergedPreviewRows=[];
-  validationFlags=[];masterRecords={};masterRecordOrder=[];qaResults=[];
+  validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
+  showMg3RetryBtn(false);
   renderValidationSummary();
   catalogEntries.forEach(function(e){
     if(!e.item_no)return; // family-level blurbs alone aren't a sellable row
