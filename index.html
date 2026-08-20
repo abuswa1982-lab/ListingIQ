@@ -345,6 +345,11 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         <button class="btn btn-navy" id="t1-gen" onclick="runTab1(false)"><span id="t1-lbl">Generate Product Names</span></button>
         <button class="btn btn-stop" id="t1-stop" onclick="doStop('t1')">&#9632; Stop</button>
         <button class="btn btn-resume" id="t1-resume" onclick="runTab1(true)">&#9654; Resume</button>
+        <!-- Round 27: a single row's title-generation failure no longer stops the
+             whole run (see runTab1()'s catch block) - this button only shows up
+             if some rows still couldn't get a title after the run finished, so
+             they can be retried without redoing everything already generated. -->
+        <button class="btn" id="t1-retry" onclick="retryFailedT1Rows()" style="display:none;background:#b45309;color:#fff;">Retry Failed Rows</button>
         <div class="res-block" id="t1-res">
           <div class="res-hdr"><div class="res-title">Results</div><div class="res-meta" id="t1-meta"></div></div>
           <div class="exp-row">
@@ -1098,7 +1103,7 @@ var CH = {
     rule:'Amazon title: MUST start with [Brand] [Part Number]. Then product type, key specs, features, keywords. Target 180-200 characters - under 150 is unacceptable. No special chars (! $ ? _ { }). No word repeated more than twice. Capitalize first letter of each major word.'},
   ebay:{label:'eBay',pill:'p-eby',max:80,target:78,
     rule:'eBay title: MUST start with [Brand] [Part Number]. Then product type and key specs. Hard limit 80 characters. Target 75-80. Use every character.'},
-  website:{label:'Website/SEO',pill:'p-web',max:70,target:65,
+  website:{label:'Website/SEO',pill:'p-web',max:85,target:80,
     // Round 24: Ahmed flagged the titles as inconsistent across otherwise-
     // similar items in the same product line - different rows picked a
     // different "most important" attribute to front-load, used different
@@ -1112,7 +1117,14 @@ var CH = {
     // skip a slot only when its data is genuinely absent, never reorder
     // it), so titles for similar products land in a visibly consistent
     // shape instead of each looking hand-picked.
-    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. After that, follow this SAME slot order for every title in this run - use whichever slots the source data actually has for THIS item, in this order, skipping only a slot with no data (never reorder or swap slots row to row): 1) primary dimension/size (e.g. width, diameter, length, capacity), 2) material/construction descriptor (e.g. a coating, finish, or build type), 3) product type/category, 4) one differentiating secondary spec (e.g. a count, rate, or grade), if there is room. Reproduce any term\'s spelling, hyphenation, and punctuation EXACTLY as it appears in the source data - never hyphenate a term on one row and not on another, and always use the inch mark (") for inch measurements, never "in." or "inches" spelled out. Target 60-70 characters, hard max 70. If the full structured title would exceed the limit, drop the LAST slot(s) entirely rather than cutting a slot short - never end the title on a bare number with no unit, a dangling connector word (for/with/and/of/etc.), or a trailing comma.'}
+    // Round 28: the old 70-char hard max meant the lowest-priority slot
+    // (where a pack-count spec would land) got dropped entirely on ~85 of
+    // Ahmed's 634 titles, and there wasn't room to reliably fit the new
+    // REQUIRED pack-quantity phrase from buildTitlePrompt's packBlock
+    // either. Raised to 85/80 (same 5-char target/max gap as before) to
+    // give both real breathing room, sized directly off the "85" Ahmed
+    // asked for.
+    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. After that, follow this SAME slot order for every title in this run - use whichever slots the source data actually has for THIS item, in this order, skipping only a slot with no data (never reorder or swap slots row to row): 1) primary dimension/size (e.g. width, diameter, length, capacity), 2) material/construction descriptor (e.g. a coating, finish, or build type), 3) product type/category, 4) one differentiating secondary spec (e.g. a count, rate, or grade), if there is room. Reproduce any term\'s spelling, hyphenation, and punctuation EXACTLY as it appears in the source data - never hyphenate a term on one row and not on another, and always use the inch mark (") for inch measurements, never "in." or "inches" spelled out. Target 75-85 characters, hard max 85. If the full structured title would exceed the limit, drop the LAST slot(s) entirely rather than cutting a slot short - never end the title on a bare number with no unit, a dangling connector word (for/with/and/of/etc.), or a trailing comma.'}
 };
 
 var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
@@ -1125,9 +1137,24 @@ var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- 
 // example pins down the specific, category-appropriate details (which
 // attribute actually matters for THIS category) that no generic rule can
 // know on its own.
+// Round 28: Ahmed's part numbers encode pack quantity as a trailing
+// "-<digits>" suffix (the same suffix baseItemKey() strips to group
+// pack-size siblings, e.g. "40610-5" and "40610-50" are the same physical
+// item in packs of 5 and 50). That quantity was never surfaced in the
+// title text itself - it's only ever appeared as JSON-LD structured data
+// (round 15). Ahmed asked for it to show up IN the title too, using the
+// exact phrasing "[5 Pack]" he confirmed.
+function getPackQty(pn){
+  var s=String(pn||'').trim();
+  var m=s.match(/-(\d+)$/);
+  return m?m[1]:null;
+}
+function packPhrase(qty){ return '['+qty+' Pack]'; }
 function buildTitlePrompt(chConfig,brand,pn,row,categoryExample){
   var exampleBlock = categoryExample ? '\n\nA title for this exact product category was already reviewed and approved earlier: "'+categoryExample+'"\nMatch that same structure, attribute order, and formatting style as closely as this item\'s own data allows - adjust the actual content for THIS item, but keep the same shape so every title in this category looks consistent.' : '';
-  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+exampleBlock+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
+  var packQty = getPackQty(pn);
+  var packBlock = packQty ? '\n\nPACK QUANTITY - REQUIRED: This item\'s part number ends in "-'+packQty+'", meaning it ships in a pack quantity of '+packQty+'. The title MUST include this as the exact phrase "'+packPhrase(packQty)+'" (with the square brackets, exactly as shown) somewhere after the mandatory Brand + Part Number prefix. This is a REQUIRED element, not optional - if the title needs to be shortened to fit the character limit, drop other secondary slots (per the rule above) BEFORE ever dropping this pack-quantity phrase.' : '';
+  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+exampleBlock+packBlock+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
 }
 
 // Round 18: Website (hard max 70) and eBay (hard max 80) both require the
@@ -1164,6 +1191,8 @@ window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
   fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  t1Failures=[];
+  showT1RetryBtn(false);
   runState={t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
   document.getElementById('uz').classList.remove('loaded');
   document.getElementById('uz-fname').textContent='';
@@ -1388,6 +1417,17 @@ function swapPNInTitle(title,oldPN,newPN,max){
   if(!title)return title;
   var t=title;
   if(oldPN&&t.indexOf(oldPN)!==-1)t=t.split(oldPN).join(newPN);
+  // Round 28: pack-size siblings can now carry a "[N Pack]" phrase in the
+  // title body (see buildTitlePrompt's packBlock) - when reusing a cached
+  // title across siblings with DIFFERENT pack quantities (e.g. "40610-5"'s
+  // cached title reused for sibling "40610-50"), the quantity in that
+  // phrase must be swapped too, not just the part number, or the reused
+  // title would silently claim the wrong pack size.
+  var oldQty=getPackQty(oldPN), newQty=getPackQty(newPN);
+  if(oldQty&&newQty&&oldQty!==newQty){
+    var oldPhrase=packPhrase(oldQty);
+    if(t.indexOf(oldPhrase)!==-1)t=t.split(oldPhrase).join(packPhrase(newQty));
+  }
   return enforceLimit(t,max);
 }
 
@@ -1509,7 +1549,11 @@ function enforceLimit(title,max){
     trimmedAgain=false;
     var bareTrailingNumber=/(^|\s)\d+$/.test(cut)&&!/\d+["']$/.test(cut);
     var danglingWord=DANGLING_TRAILING_WORD.test(cut);
-    if(bareTrailingNumber||danglingWord){
+    // Round 28: a title truncated mid pack-quantity phrase (e.g. "...Blade
+    // [5" or "...Blade [5 Pac") would otherwise survive as a dangling,
+    // unclosed bracket fragment - strip back to before the "[" instead.
+    var danglingBracket=/\[[^\]]*$/.test(cut);
+    if(bareTrailingNumber||danglingWord||danglingBracket){
       var lastSp=cut.lastIndexOf(' ');
       if(lastSp>0){
         cut=cut.substring(0,lastSp).replace(/[\s,;:\-]+$/,'');
@@ -1676,6 +1720,8 @@ async function runTab1(isResume){
     runState.t1.channel = channel;
     startIdx = 0;
     results.t1=[];
+    t1Failures=[];
+    showT1RetryBtn(false);
     runState.t1.resumeFrom = null;
     isFreshRun = true;
   }
@@ -1754,83 +1800,36 @@ async function runTab1(isResume){
     setProg('t1',Math.round((i/rows.length)*95),'Row '+(i+1)+' of '+rows.length);
     document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+rows.length;
     try {
-      var pn=getPN(rows[i]);
-      var b=getBrand(rows[i],brand);
-      var bKey=baseItemKey(pn);
-      var cached1=(reuseVariantsOn()&&bKey)?variantCache1[bKey]:null;
-      // Round 25: if this row's category was matched to a saved/approved
-      // pattern (either just now in the review step, or from a previous
-      // run), pull its reference example title to feed into the prompt.
-      var catExample = getCategoryExampleForRow(i);
-      if(cached1){
-        if(channel==='all'){
-          var reusedEntry={partNumber:pn,row:rows[i],titles:{},reusedFrom:cached1.partNumber};
-          for(var rci=0;rci<chs.length;rci++){
-            reusedEntry.titles[chs[rci]]=swapPNInTitle(cached1.titles[chs[rci]],cached1.partNumber,pn,CH[chs[rci]].max);
-          }
-          results.t1.push(reusedEntry);
-        } else {
-          var srcTitle=cached1.titles?(cached1.titles[channel]||cached1.title):cached1.title;
-          results.t1.push({partNumber:pn,channel:channel,title:swapPNInTitle(srcTitle,cached1.partNumber,pn,CH[channel].max),row:rows[i],reusedFrom:cached1.partNumber});
-        }
-      } else if(channel==='all'){
-        var entry={partNumber:pn,row:rows[i],titles:{}};
-        for(var ci=0;ci<chs.length;ci++){
-          checkTitlePrefixFits(CH[chs[ci]],b,pn);
-          var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i],catExample);
-          // Round 22 raised this 300->2000; round 23 raised it again to
-          // 4000 - see the note below on the single-channel call.
-          var raw=await apiCallRetry(p,4000);
-          entry.titles[chs[ci]]=enforceLimit(raw,CH[chs[ci]].max);
-        }
-        results.t1.push(entry);
-        if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry;
-      } else {
-        checkTitlePrefixFits(CH[channel],b,pn);
-        var p2=buildTitlePrompt(CH[channel],b,pn,rows[i],catExample);
-        // Round 22: this 300-token budget is the real root cause of the
-        // rounds 18-19 "empty response" mystery on Product Name - Ahmed's
-        // round-18 diagnostic surfacing finally caught it live:
-        // stop_reason=max_tokens, content block types=["thinking"]. The
-        // model spends output-token budget on internal reasoning before
-        // committing to a final answer; Product Name's 300-token cap (by
-        // far the smallest in the app - Highlights uses 600, Description/
-        // HTML Table use 800) left no room left for any actual title text
-        // once that reasoning ran, so the response was cut off mid-thought
-        // with zero usable output - a real 200 OK, just genuinely empty.
-        // Website's more nuanced front-loading rule most likely triggers
-        // more reasoning than Amazon's simpler "fill to 200 chars" rule,
-        // which plausibly explains why it hit this far more consistently,
-        // though the underlying cap was too tight for any channel. Raised
-        // to 2000 in round 22 (matching Master Record synthesis).
-        //
-        // Round 23: Ahmed reported Product Name STILL failing after round
-        // 22, on a run where the merged/Master-Record data is now much
-        // richer (real Excel spec data + catalog data combined) than what
-        // was used to validate round 22's fix - a bigger, more detailed
-        // getPromptData() payload gives the model more to reason about
-        // before it can decide on a title, which plausibly still exceeds
-        // 2000 thinking+output tokens for a fully-populated record. Raised
-        // again to 4000 - a title itself is still only ~50-200 characters
-        // of actual output, so this remains almost entirely headroom for
-        // reasoning, not an expectation that output size grew.
-        var raw2=await apiCallRetry(p2,4000);
-        var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
-        results.t1.push(entry2);
-        if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
-      }
+      await generateT1RowInto(i,rows,channel,brand,chs,variantCache1);
       renderT1();
     } catch (rowErr) {
-      runState.t1.resumeFrom = i;
-      setMsg('t1-msg','Failed at row '+(i+1)+': '+rowErr.message+'. '+results.t1.length+' row(s) completed and ready to export. Click Resume to retry from row '+(i+1)+'.','error');
-      setProg('t1',0,'');
-      showResume('t1',true,i);
-      btn.disabled=false;
-      document.getElementById('t1-lbl').textContent='Generate Product Names';
-      showStop('t1',false);
+      // Round 27: a hard client error (bad key, etc.) means every later row
+      // will fail identically too, so it still makes sense to stop the
+      // whole run here and let Resume pick up once the real problem is
+      // fixed. But most Product Name failures are transient and row-
+      // specific - the max_tokens/thinking-only cutoff this tab is
+      // especially prone to (see the note in generateT1RowInto), a rate
+      // limit, a momentary API hiccup - and have nothing to do with the
+      // other rows in the run. Blocking the whole run on one stubborn row
+      // (and then getting stuck retrying that SAME row on every Resume) is
+      // exactly the problem Ahmed hit at row 86 of a 500+ row run. So:
+      // hard-stop only for non-retryable client errors; everything else
+      // gets tracked and the run moves on to the next row, same philosophy
+      // as masterRecordFailures (round 25c) and failedChunks (round 11).
+      if(rowErr.status && NON_RETRYABLE_STATUS[rowErr.status]){
+        runState.t1.resumeFrom = i;
+        setMsg('t1-msg','Failed at row '+(i+1)+': '+rowErr.message+'. '+results.t1.length+' row(s) completed and ready to export. Click Resume to retry from row '+(i+1)+'.','error');
+        setProg('t1',0,'');
+        showResume('t1',true,i);
+        btn.disabled=false;
+        document.getElementById('t1-lbl').textContent='Generate Product Names';
+        showStop('t1',false);
+        renderT1();
+        updateConsolGrid();
+        return;
+      }
+      t1Failures.push({index:i,partNumber:getPN(rows[i])||'',error:rowErr.message||String(rowErr)});
       renderT1();
-      updateConsolGrid();
-      return;
     }
   }
 
@@ -1838,12 +1837,157 @@ async function runTab1(isResume){
     runState.t1.resumeFrom = null;
     setProg('t1',100,'');
     setTimeout(function(){setProg('t1',0,'');},400);
-    setMsg('t1-msg','','');
+    var failNote=t1Failures.length?(t1Failures.length+' row(s) could not get a title (shown in the console/status below - click "Retry Failed Rows" to try again). '+results.t1.length+' row(s) completed successfully.'):'';
+    setMsg('t1-msg',failNote,t1Failures.length?'warn':'');
+    showT1RetryBtn(t1Failures.length>0);
   }
   renderT1();
   btn.disabled=false;
   document.getElementById('t1-lbl').textContent='Generate Product Names';
   showStop('t1',false);
+  updateConsolGrid();
+}
+
+// Round 27: the actual per-row title-generation work, factored out of
+// runTab1()'s main loop so retryFailedT1Rows() can re-run it for just the
+// rows that failed, without duplicating this logic. Throws on failure (the
+// caller decides hard-stop vs. skip-and-track); on success it pushes the
+// new/reused entry straight into results.t1 (and variantCache1, so a later
+// pack-size sibling in the same run/retry still gets dedup reuse).
+async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
+  var pn=getPN(rows[i]);
+  var b=getBrand(rows[i],brand);
+  var bKey=baseItemKey(pn);
+  var cached1=(reuseVariantsOn()&&bKey)?variantCache1[bKey]:null;
+  // Round 25: if this row's category was matched to a saved/approved
+  // pattern (either just now in the review step, or from a previous run),
+  // pull its reference example title to feed into the prompt.
+  var catExample = getCategoryExampleForRow(i);
+  if(cached1){
+    if(channel==='all'){
+      var reusedEntry={partNumber:pn,row:rows[i],titles:{},reusedFrom:cached1.partNumber};
+      for(var rci=0;rci<chs.length;rci++){
+        reusedEntry.titles[chs[rci]]=swapPNInTitle(cached1.titles[chs[rci]],cached1.partNumber,pn,CH[chs[rci]].max);
+      }
+      results.t1.push(reusedEntry);
+    } else {
+      var srcTitle=cached1.titles?(cached1.titles[channel]||cached1.title):cached1.title;
+      results.t1.push({partNumber:pn,channel:channel,title:swapPNInTitle(srcTitle,cached1.partNumber,pn,CH[channel].max),row:rows[i],reusedFrom:cached1.partNumber});
+    }
+  } else if(channel==='all'){
+    var entry={partNumber:pn,row:rows[i],titles:{}};
+    for(var ci=0;ci<chs.length;ci++){
+      checkTitlePrefixFits(CH[chs[ci]],b,pn);
+      var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i],catExample);
+      // Round 22 raised this 300->2000; round 23 raised it again to 4000 -
+      // see the note below on the single-channel call.
+      var raw=await apiCallRetry(p,4000);
+      entry.titles[chs[ci]]=enforceLimit(raw,CH[chs[ci]].max);
+    }
+    results.t1.push(entry);
+    if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry;
+  } else {
+    checkTitlePrefixFits(CH[channel],b,pn);
+    var p2=buildTitlePrompt(CH[channel],b,pn,rows[i],catExample);
+    // Round 22: this 300-token budget is the real root cause of the rounds
+    // 18-19 "empty response" mystery on Product Name - Ahmed's round-18
+    // diagnostic surfacing finally caught it live: stop_reason=max_tokens,
+    // content block types=["thinking"]. The model spends output-token
+    // budget on internal reasoning before committing to a final answer;
+    // Product Name's 300-token cap (by far the smallest in the app -
+    // Highlights uses 600, Description/HTML Table use 800) left no room
+    // left for any actual title text once that reasoning ran, so the
+    // response was cut off mid-thought with zero usable output - a real
+    // 200 OK, just genuinely empty. Website's more nuanced front-loading
+    // rule most likely triggers more reasoning than Amazon's simpler "fill
+    // to 200 chars" rule, which plausibly explains why it hit this far
+    // more consistently, though the underlying cap was too tight for any
+    // channel. Raised to 2000 in round 22 (matching Master Record
+    // synthesis).
+    //
+    // Round 23: Ahmed reported Product Name STILL failing after round 22,
+    // on a run where the merged/Master-Record data is now much richer
+    // (real Excel spec data + catalog data combined) than what was used to
+    // validate round 22's fix - a bigger, more detailed getPromptData()
+    // payload gives the model more to reason about before it can decide on
+    // a title, which plausibly still exceeds 2000 thinking+output tokens
+    // for a fully-populated record. Raised again to 4000 - a title itself
+    // is still only ~50-200 characters of actual output, so this remains
+    // almost entirely headroom for reasoning, not an expectation that
+    // output size grew.
+    //
+    // Round 27: even at 4000, Product Name still hits this occasionally on
+    // individual rows (e.g. row 86 of a 500+ row run) - by round 25/25b/25c
+    // this prompt is also reconciling a fixed 4-slot structural rule (round
+    // 24), an approved category reference example (round 25) to match the
+    // shape of, the mandatory Brand+PN prefix, the hard character limit,
+    // and the no-invention rule, all at once, for one very short output.
+    // That's meaningfully more simultaneous constraints to reason through
+    // than Highlights/Description/HTML Table ever have to juggle, which is
+    // the most likely reason this tab alone keeps hitting the reasoning-
+    // budget ceiling on individual rows even with a generous cap. Rather
+    // than keep guessing at ever-larger fixed numbers, a stubborn row now
+    // gets skipped and tracked (see runTab1()'s catch block) instead of
+    // blocking the rest of the run.
+    var raw2=await apiCallRetry(p2,4000);
+    var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
+    results.t1.push(entry2);
+    if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
+  }
+}
+
+function showT1RetryBtn(show){
+  var b=document.getElementById('t1-retry');
+  if(b)b.style.display=show?'inline-block':'none';
+}
+
+// Round 27: re-runs only the rows whose title generation failed last time
+// (mirrors retryFailedMasterRecords()/retryFailedPages()) - re-reads each
+// failed row fresh from fileData (so any edits since the failed run are
+// picked up) using the SAME locked channel/brand/category rules the
+// original run resolved, and only touches those specific rows.
+async function retryFailedT1Rows(){
+  if(!t1Failures.length)return;
+  var toRetry=t1Failures.slice();
+  t1Failures=[];
+  showT1RetryBtn(false);
+
+  var btn=document.getElementById('t1-gen');
+  btn.disabled=true;stops.t1=false;showStop('t1',true);showResume('t1',false);
+  setMsg('t1-msg','Retrying '+toRetry.length+' failed row(s)...','info');
+
+  var rows=fileData;
+  var channel=runState.t1.channel||document.getElementById('t1-channel').value;
+  var brand=document.getElementById('t1-brand').value.trim();
+  var chs=channel==='all'?['amazon','ebay','website']:[channel];
+  var variantCache1=buildVariantCache(results.t1);
+
+  for(var ri=0;ri<toRetry.length;ri++){
+    if(stops.t1){
+      setMsg('t1-msg','Stopped retrying. '+t1Failures.length+' row(s) still unresolved.','warn');
+      break;
+    }
+    var i=toRetry[ri].index;
+    setProg('t1',Math.round((ri/toRetry.length)*95),'Retrying row '+(i+1)+' ('+(ri+1)+' of '+toRetry.length+')');
+    document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>Retrying '+(ri+1)+' / '+toRetry.length;
+    try{
+      await generateT1RowInto(i,rows,channel,brand,chs,variantCache1);
+      renderT1();
+    }catch(err){
+      t1Failures.push({index:i,partNumber:toRetry[ri].partNumber,error:err.message||String(err)});
+    }
+    if(ri+1<toRetry.length&&!stops.t1)await new Promise(function(r){setTimeout(r,400);});
+  }
+
+  setProg('t1',100,'');
+  setTimeout(function(){setProg('t1',0,'');},400);
+  var failNote=t1Failures.length?(' '+t1Failures.length+' row(s) still could not be built.'):' All previously failed rows were built successfully.';
+  setMsg('t1-msg',failNote,t1Failures.length?'warn':'success');
+  showT1RetryBtn(t1Failures.length>0);
+  btn.disabled=false;
+  document.getElementById('t1-lbl').textContent='Generate Product Names';
+  showStop('t1',false);
+  renderT1();
   updateConsolGrid();
 }
 
@@ -2350,6 +2494,18 @@ var masterRecordOrder = [];  // baseKey build order, for the results table and E
 // getPromptData() correctly falls back to the item's raw merged row
 // instead of a fake empty record.
 var masterRecordFailures = [];
+
+// Round 27: {index, partNumber, error} for Product Name rows whose title
+// generation call failed (transient - empty response, the max_tokens/
+// thinking-only cutoff, rate limit, etc.) - tracked separately so one
+// stubborn row (like Product Name's unusually reasoning-heavy prompt: a
+// fixed structural rule PLUS an approved category example PLUS a mandatory
+// prefix PLUS a hard character limit, all for one short title) doesn't
+// block the rest of a 500+ row run. Same philosophy as masterRecordFailures
+// (round 25c) and failedChunks (round 11) - no entry is written to
+// results.t1 for these rows, so they're simply missing from that tab until
+// retried, never silently faked.
+var t1Failures = [];
 var qaResults = [];          // Phase 5: [{baseKey, partNumber, issues:[...]}]
 
 function udragPdf(e,on){e.preventDefault();document.getElementById('uz-pdf').classList.toggle('drag',on);}
@@ -3752,6 +3908,8 @@ function useMergedData(){
   if(!mergedForFileData.length){alert('Run the merge first.');return;}
   fileData=mergedForFileData;
   results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  t1Failures=[];
+  showT1RetryBtn(false);
   runState.t1={resumeFrom:null,channel:null};runState.t2={resumeFrom:null};runState.t3={resumeFrom:null};runState.t4={resumeFrom:null};
   ['t1','t2','t3','t4'].forEach(function(t){var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');showResume(t,false);});
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
