@@ -796,7 +796,7 @@ function renderCategoryCard(item,idx){
   var badgeClass = item.status==='new'?'b-new':(item.status==='saved'?'b-saved':'b-possible');
   var badgeText = item.status==='new'?'New':(item.status==='saved'?'Saved':'Possible Match');
   var exPn = getPN(item.exampleRow);
-  var doneNote = item.decision ? '<div class="catcard-status">&#10003; '+esc(decisionSummary(item))+'</div>' : '';
+  var doneNote = item.decision ? '<div class="catcard-status">&#10003; '+esc(decisionSummary(item))+' <button class="catcard-btn" onclick="undoCategoryDecision('+idx+')" style="margin-left:10px;">Undo</button></div>' : '';
   var body;
   if(item.status==='possible'){
     var existingEx = (categoryLibrary.categories[item.bestGuess]||{}).exampleTitle || '';
@@ -1006,6 +1006,7 @@ function catrevDownloadXlsx(){
     var currentName = (item.userName && item.userName.trim()!=='') ? item.userName : (item.canonical||item.suggestedName||'');
     return {
       'Idx': idx,
+      'Key (do not edit - used to match this row back to the right card)': item.key,
       'Status': item.status,
       'Category Name': currentName,
       'Example Item': getPN(item.exampleRow),
@@ -1017,7 +1018,7 @@ function catrevDownloadXlsx(){
     };
   });
   var ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch:6},{wch:10},{wch:30},{wch:16},{wch:30},{wch:22},{wch:60},{wch:26},{wch:26}];
+  ws['!cols'] = [{wch:6},{wch:50},{wch:10},{wch:30},{wch:16},{wch:30},{wch:22},{wch:60},{wch:26},{wch:26}];
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Category Review');
   XLSX.writeFile(wb, 'category_review.xlsx');
@@ -1039,31 +1040,40 @@ function catrevUploadXlsx(file){
       var ws = wb.Sheets[wb.SheetNames[0]];
       var sheetRows = XLSX.utils.sheet_to_json(ws,{defval:''});
       sheetRows.forEach(function(r){
-        var idx = parseInt(r['Idx'],10);
-        if(isNaN(idx) || idx<0 || idx>=activeCatReview.queue.length){ errors.push('Row with Idx "'+r['Idx']+'" does not match any card - skipped.'); skipped++; return; }
-        var item = activeCatReview.queue[idx];
+        // Match by the stable Key column, NOT by Idx (row position). Idx
+        // is only meaningful within the exact review session that produced
+        // it - if the popup was ever closed and reopened between download
+        // and upload, a fresh queue gets built and "row 0" may no longer
+        // be the same category. Key stays stable across sessions, so a
+        // stale download can never silently land on the wrong card.
+        var rowKey = String(r['Key (do not edit - used to match this row back to the right card)']||'').trim();
+        if(!rowKey){ errors.push('A row is missing its Key column - skipped (did you delete or rename that column?).'); skipped++; return; }
+        var itemIdx = -1;
+        for(var qi=0; qi<activeCatReview.queue.length; qi++){ if(activeCatReview.queue[qi].key===rowKey){ itemIdx=qi; break; } }
+        if(itemIdx===-1){ errors.push('A row\'s Key doesn\'t match any card in THIS review session - skipped. This usually means the review popup was closed and reopened since you downloaded the sheet; download a fresh copy from the current popup and redo your edits.'); skipped++; return; }
+        var item = activeCatReview.queue[itemIdx];
         if(item.decision){ return; } // already decided in-browser - never overwrite silently
         var decisionType = String(r['Decision (approve / confirm / merge)']||'').trim().toLowerCase();
         if(!decisionType) return; // left blank on purpose - still needs a manual look
         var title = String(r['Title']||'').trim();
         var name = String(r['Category Name']||'').trim();
         if(decisionType==='approve'){
-          if(item.status!=='new'){ errors.push('Row '+idx+': "approve" only applies to New cards - skipped.'); skipped++; return; }
-          if(!title){ errors.push('Row '+idx+': "approve" needs a Title - skipped.'); skipped++; return; }
+          if(item.status!=='new'){ errors.push('Category "'+name+'": "approve" only applies to New cards - skipped.'); skipped++; return; }
+          if(!title){ errors.push('Category "'+name+'": "approve" needs a Title - skipped.'); skipped++; return; }
           item.decision = {type:'approve',canonicalName:name||item.suggestedName||'Uncategorized',title:title};
           applied++;
         } else if(decisionType==='confirm'){
-          if(item.status!=='saved'){ errors.push('Row '+idx+': "confirm" only applies to Saved cards - skipped.'); skipped++; return; }
+          if(item.status!=='saved'){ errors.push('Category "'+name+'": "confirm" only applies to Saved cards - skipped.'); skipped++; return; }
           item.decision = {type:'confirm',canonicalName:item.canonical,title:title||((categoryLibrary.categories[item.canonical]||{}).exampleTitle||'')};
           applied++;
         } else if(decisionType==='merge'){
-          if(item.status!=='possible'){ errors.push('Row '+idx+': "merge" only applies to Possible Match cards - skipped.'); skipped++; return; }
+          if(item.status!=='possible'){ errors.push('Category "'+name+'": "merge" only applies to Possible Match cards - skipped.'); skipped++; return; }
           var mergeInto = String(r['Merge Into (only if Decision=merge)']||'').trim();
-          if(!mergeInto){ errors.push('Row '+idx+': "merge" needs Merge Into filled in - skipped.'); skipped++; return; }
+          if(!mergeInto){ errors.push('Category "'+name+'": "merge" needs Merge Into filled in - skipped.'); skipped++; return; }
           item.decision = {type:'merge',canonicalName:mergeInto};
           applied++;
         } else {
-          errors.push('Row '+idx+': unrecognized Decision "'+r['Decision (approve / confirm / merge)']+'" - must be approve, confirm, or merge. Skipped.');
+          errors.push('Category "'+name+'": unrecognized Decision "'+r['Decision (approve / confirm / merge)']+'" - must be approve, confirm, or merge. Skipped.');
           skipped++;
         }
       });
@@ -1081,6 +1091,20 @@ document.addEventListener('DOMContentLoaded', function(){
   var upl = document.getElementById('catrev-upload-input');
   if(upl) upl.addEventListener('change', function(){ catrevUploadXlsx(this.files[0]); });
 });
+// Round 26b: lets a specific card be corrected without losing every other
+// decision already made in this session (previously the only way to fix
+// one mistake was Cancel, which discards the whole review). Clears just
+// this card's decision and re-renders - the card goes back to its normal
+// editable state, Continue & Generate re-locks automatically since not
+// every card is decided anymore, and a corrected re-upload (or a manual
+// fix in the browser) will now apply to it since item.decision is null.
+function undoCategoryDecision(idx){
+  if(!activeCatReview) return;
+  var item = activeCatReview.queue[idx];
+  if(!item) return;
+  item.decision = null;
+  renderCategoryReview();
+}
 function cancelCategoryReview(){
   if(!activeCatReview) return;
   var rejectFn = activeCatReview.reject;
