@@ -178,7 +178,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <button class="api-save" onclick="saveKey()">Save</button>
   </div>
 </header>
-
 <main>
   <div class="file-card">
     <div class="file-row">
@@ -205,7 +204,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       <label for="reuse-variants" style="margin:0;">Reuse content for pack-size variants (applies to Product Name, Highlights, Description, HTML Table) — e.g. <code>40610-5</code> and <code>40610-50</code> are treated as the same product in different pack quantities, so content is generated once and copied to every matching variant instead of being regenerated from scratch.</label>
     </div>
   </div>
-
   <div class="tabs-wrap">
     <div class="tab-nav">
       <button class="active" onclick="switchTab(0,this)"><span class="tn">1</span>Merge Data</button>
@@ -215,14 +213,11 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       <button onclick="switchTab(4,this)"><span class="tn">5</span>HTML Table</button>
       <button onclick="switchTab(5,this)"><span class="tn">6</span>Consolidate</button>
     </div>
-
     <div class="tab-panel active" id="tab-0">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Manufacturers often hand you a thin spec sheet ("see catalog for details") plus a separate PDF catalog with the actual descriptions, features, and applications. This step reads the PDF catalog, matches each row of your spec sheet to its catalog content by item number, and produces a clean merged dataset in the format the rest of ListingIQ expects (Part Number / Brand / Product Type / Key Specs / Additional Info 1-3) — which then feeds Tabs 2-5 exactly like a normal upload.</p>
-
         <div class="resilience-note">Only have one of the two files? This tab still helps. Spec sheet but no catalog: skip Step 1 and go straight to Step 2 - it'll still flatten a messy multi-section sheet and clean it up, just without catalog enrichment. Catalog but no spec sheet: upload just the PDF, run Step 1, then use "Build Rows From Catalog Only" instead of Step 2. Already have a clean, single-table sheet? Skip this tab entirely and upload straight into the box at the top of the page - Product Name/Highlights/etc. work exactly as before.</div>
         <div class="resilience-note">Step 1: upload your raw manufacturer spec sheet in the box at the top of the page (Excel/CSV) — that's the file this tab merges catalog content into. Step 2: upload the manufacturer's PDF catalog below. Nothing here is sent anywhere except to Claude's API using the key you saved above.</div>
-
         <div class="field" style="margin-top:1rem;">
           <label>Manufacturer catalog (PDF)</label>
           <div class="upload-zone" id="uz-pdf" onclick="document.getElementById('fi-pdf').click()" ondragover="udragPdf(event,true)" ondragleave="udragPdf(event,false)" ondrop="udropPdf(event)">
@@ -235,13 +230,11 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           </div>
           <input type="file" id="fi-pdf" accept=".pdf" style="display:none" onchange="fpickPdf(event)">
         </div>
-
         <div class="field">
           <label>Pages to extract <span style="color:var(--faint);font-size:10px;">(optional)</span></label>
           <input type="text" id="mg-pagerange" placeholder='e.g. 18-22,25 - leave blank for all pages'>
           <div class="uz-sub" id="mg-pagerange-hint" style="margin-top:4px;">Upload a PDF above to see its page count.</div>
         </div>
-
         <div class="two-col">
           <div class="field">
             <label>Brand / Manufacturer <span style="color:var(--faint);font-size:10px;">(used for every merged row)</span></label>
@@ -256,13 +249,11 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           <input type="checkbox" id="mg-strip" checked style="width:auto;">
           <label for="mg-strip" style="margin:0;">Strip trailing pack-size suffix when matching (e.g. "40610-5" and "40610-50" both match catalog item "40610")</label>
         </div>
-
         <div class="msg" id="mg1-msg"></div>
         <div class="prog-wrap" id="mg1-prog"><div class="prog-track"><div class="prog-fill" id="mg1-pfill"></div></div><div class="prog-lbl" id="mg1-plbl"></div></div>
         <button class="btn btn-navy" id="mg1-gen" onclick="extractCatalog()"><span id="mg1-lbl">1. Extract Catalog Content</span></button>
         <button class="btn btn-stop" id="mg1-stop" onclick="doStop('mg1')">&#9632; Stop</button>
         <button class="btn" id="mg1-retry" onclick="retryFailedPages()" style="display:none;background:#b45309;color:#fff;">Retry Failed Pages</button>
-
         <div class="res-block" id="mg1-res">
           <div class="res-hdr"><div class="res-title">Extracted Catalog Entries</div><div class="res-meta" id="mg1-meta"></div></div>
           <div class="exp-row">
@@ -271,10 +262,8 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           </div>
           <div class="tbl-wrap"><table><thead><tr><th>Item No.</th><th>Product Family</th><th>Extracted Content</th></tr></thead><tbody id="mg1-tbody"></tbody></table></div>
         </div>
-
         <div class="msg" id="mg2-msg" style="margin-top:1.25rem;"></div>
         <button class="btn btn-gold" id="mg2-gen" onclick="mergeData()" style="margin-top:1rem;">2. Merge Into Spec Sheet</button>
-
         <div class="res-block" id="mg2-res">
           <div class="res-hdr"><div class="res-title">Merge Preview</div><div class="res-meta" id="mg2-meta"></div></div>
           <div class="exp-row">
@@ -282,9 +271,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           </div>
           <div class="tbl-wrap"><table><thead><tr><th>Part Number</th><th>Matched?</th><th>Product Type</th><th>Key Specs</th><th>Additional Info 1</th></tr></thead><tbody id="mg2-tbody"></tbody></table></div>
         </div>
-
         <div class="res-block" id="mg-validation"></div>
-
         <p style="font-size:13px;color:var(--muted);margin:1.25rem 0 0.5rem;font-family:monospace;">Optional but recommended: combine each item's spec-sheet data and catalog data into one clean, verified record before generating listing content. This is what Product Name/Highlights/Description/HTML Table will use if it exists - one AI call per unique base item (pack-size siblings share one record, same as everywhere else in the app), under the same no-invented-data rule as everything else.</p>
         <div class="msg" id="mg3-msg"></div>
         <div class="prog-wrap" id="mg3-prog"><div class="prog-track"><div class="prog-fill" id="mg3-pfill"></div></div><div class="prog-lbl" id="mg3-plbl"></div></div>
@@ -298,7 +285,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
              everything already built. -->
         <button class="btn" id="mg3-retry" onclick="retryFailedMasterRecords()" style="display:none;background:#b45309;color:#fff;">Retry Failed Items</button>
         <div class="uz-sub" id="mg3-gate-hint" style="margin-top:6px;color:var(--muted);">Run Step 2 ("Merge Into Spec Sheet") or "Build Rows From Catalog Only" above first - this button lights up once there's merged data to build records from.</div>
-
         <div class="res-block" id="mg3-res">
           <div class="res-hdr"><div class="res-title">Master Records</div><div class="res-meta" id="mg3-meta"></div></div>
           <div class="exp-row">
@@ -306,11 +292,9 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           </div>
           <div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Sources</th><th>Technical Specs</th><th>Features</th><th>Applications</th></tr></thead><tbody id="mg3-tbody"></tbody></table></div>
         </div>
-
         <button class="btn btn-navy" onclick="useMergedData()" style="margin-top:1rem;">Use This Data &#8594; Go to Product Name</button>
       </div>
     </div>
-
     <div class="tab-panel" id="tab-1">
       <div class="tab-body">
         <div class="two-col">
@@ -372,7 +356,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         </div>
       </div>
     </div>
-
     <div class="tab-panel" id="tab-2">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product. Size is excluded.</p>
@@ -392,7 +375,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         </div>
       </div>
     </div>
-
     <div class="tab-panel" id="tab-3">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 into HTML. Preserves every word exactly.</p>
@@ -412,7 +394,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         </div>
       </div>
     </div>
-
     <div class="tab-panel" id="tab-4">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds an HTML specs table. Size is excluded.</p>
@@ -432,14 +413,12 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         </div>
       </div>
     </div>
-
     <div class="tab-panel" id="tab-5">
       <div class="tab-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file. Structured Data (schema.org JSON-LD, for search engines to read) is built automatically from your merged data with no AI call and no generate step needed - it's always included here.</p>
         <div class="consol-grid" id="consol-grid"></div>
         <div class="msg" id="t5-msg"></div>
         <button class="btn btn-gold" onclick="runConsolidate()">Export Consolidated Excel</button>
-
         <p style="font-size:13px;color:var(--muted);margin:1.5rem 0 0.5rem;font-family:monospace;">Optional: check what was generated above for problems before you use it - duplicate content between different items, items with no real source data behind them, and (one AI check per item) any claim in the generated text that isn't actually backed by the verified data.</p>
         <div class="msg" id="qa-msg"></div>
         <button class="btn btn-navy" id="qa-gen" onclick="runQACheck()">Run QA Check</button>
@@ -451,7 +430,6 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
   </div>
 </main>
-
 <!-- Round 25: category rules - review modal (approve/correct a title pattern
      per category before generating) and the saved-categories manager. Both
      are populated dynamically by renderCategoryReview()/renderCategoryManager(). -->
@@ -462,6 +440,10 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <div id="catrev-list"></div>
     <div class="catov-foot">
       <button class="btn btn-navy" id="catrev-continue" onclick="continueCategoryReview()" disabled style="width:auto;padding:11px 22px;">Continue &amp; Generate</button>
+      <button class="btn-sm" onclick="catrevApproveAllReady()">Approve All Ready</button>
+      <button class="btn-sm" onclick="catrevDownloadXlsx()">Download for Review</button>
+      <input type="file" id="catrev-upload-input" accept=".xlsx,.xls" style="display:none">
+      <button class="btn-sm" onclick="document.getElementById('catrev-upload-input').click()">Upload Reviewed Sheet</button>
       <button class="btn-sm" onclick="cancelCategoryReview()">Cancel</button>
     </div>
   </div>
@@ -492,14 +474,12 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
   </div>
 </div>
-
 <script>
 var fileData = null;
 var stops = {t1:false,t2:false,t3:false,t4:false};
 var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
 // resumeFrom is the row index where a run stopped (failure or user-stop). null = no pending resume.
 var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
-
 // Applied to every content-generation prompt (titles, highlights, meta
 // descriptions - anywhere the AI is asked to state a fact about the
 // product). Every attribute/claim must trace back to the PRODUCT DATA
@@ -507,7 +487,6 @@ var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFr
 // and/or catalog) - nothing invented, nothing filled in from the model's
 // general knowledge of the product category.
 var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.';
-
 // ============================================================================
 // Round 25: Category Rules - a saved, per-category library of approved title
 // patterns, built up over time instead of the app (or a general AI model)
@@ -540,7 +519,6 @@ var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribu
 // ============================================================================
 var CATEGORY_LIB_KEY = 'liq_category_rules';
 var CATEGORY_REVIEW_ALL_KEY = 'liq_cat_review_all';
-
 function loadCategoryLibrary(){
   try{
     var raw = localStorage.getItem(CATEGORY_LIB_KEY);
@@ -568,9 +546,7 @@ function getReviewAllSetting(){
 function setReviewAllSetting(on){
   localStorage.setItem(CATEGORY_REVIEW_ALL_KEY, on?'1':'0');
 }
-
 var categoryLibrary = loadCategoryLibrary();
-
 function normalizeCategoryLabel(raw){
   return (raw||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
 }
@@ -596,7 +572,6 @@ function suggestCategoryName(raw){
   return s.replace(/\w\S*/g,function(t){return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();});
 }
 var CATEGORY_POSSIBLE_MATCH_THRESHOLD = 0.4;
-
 // Matches one row's raw category text against the saved library.
 // Returns {status:'new'|'saved'|'possible', canonical, norm, rawLabel, bestGuess, score}
 function matchCategory(rawLabel){
@@ -623,12 +598,10 @@ function matchCategory(rawLabel){
   }
   return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:null,score:0};
 }
-
 function getRowCategoryRaw(row){
   var v = row['Product Type'] || row['product type'] || '';
   return (v||'').toString().trim();
 }
-
 // Round 25b: Ahmed's concern - a saved category's example title is only
 // ever as correct as it was the moment it got approved. If it was approved
 // with a wrong/stale brand baked in, the app has no way to know that on its
@@ -643,7 +616,6 @@ function categoryExampleBrandMismatch(cat,brand){
   var norm = cat.exampleTitle.trim().toLowerCase();
   return norm.indexOf(brand.trim().toLowerCase())!==0;
 }
-
 // Round 25b: Ahmed's other worry - the "Brand override" field is absolute
 // (getBrand() lets it win over every row's own real Brand data, silently,
 // for the whole run). A typo or wrong brand typed there used to propagate
@@ -663,7 +635,6 @@ function scanBrandConsistency(rows,overrideBrand){
   var mismatch = fileBrands.some(function(fb){return fb.value.toLowerCase()!==ov.toLowerCase();});
   return {hasOverride:true, overrideValue:ov, fileBrands:fileBrands, mismatch:mismatch};
 }
-
 // Shows a one-time confirmation ONLY when the typed override disagrees with
 // what the file's own Brand column actually says. Resolves with whichever
 // brand string should actually be used for the rest of this run: the
@@ -690,7 +661,6 @@ function runBrandCheck(rows,overrideBrand){
   });
 }
 function cancelBrandCheck(){ if(__brandCheckCancel) __brandCheckCancel(); }
-
 // Scans every row once (cheap - plain text matching, no AI) and builds:
 // - byRowIndex: parallel array, one match result per row (or {status:'none'} if the row has no Product Type at all)
 // - reviewQueue: one entry per DISTINCT category that needs a decision, first-seen order
@@ -726,7 +696,6 @@ function scanCategoriesForRun(rows,resolvedBrand){
   }
   return {byRowIndex:byRowIndex, reviewQueue:queue};
 }
-
 // Looks up the approved reference title for row i's category, using the
 // map runTab1() resolved for this run (runState.t1.categoryMap - either
 // just built by the review step, or carried over across a Resume). Returns
@@ -738,9 +707,7 @@ function getCategoryExampleForRow(i){
   var cat = categoryLibrary.categories[map[i]];
   return cat ? (cat.exampleTitle||null) : null;
 }
-
 function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
-
 // ---- Round 25: category review modal ----
 // activeCatReview holds the in-progress review session: the queue of
 // distinct categories needing a decision (one card each), the original
@@ -748,7 +715,6 @@ function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 // decisions are in), and the resolve/reject of the Promise runTab1() is
 // awaiting.
 var activeCatReview = null;
-
 function runCategoryReview(scan,channel,brand){
   return new Promise(function(resolve,reject){
     activeCatReview = {
@@ -777,7 +743,6 @@ function runCategoryReview(scan,channel,brand){
     });
   });
 }
-
 function renderCategoryReview(){
   if(!activeCatReview) return;
   // Round 25b: this can re-render while a preview is still generating (the
@@ -796,7 +761,6 @@ function renderCategoryReview(){
   var allDone = activeCatReview.queue.every(function(item){return !!item.decision;});
   document.getElementById('catrev-continue').disabled = !allDone;
 }
-
 // Round 25b: fixes a real stuck-modal report - Ahmed hit a card stuck on
 // "Generating a preview title..." with the Approve button disabled and no
 // way to proceed. The textarea/Approve are no longer disabled while
@@ -822,14 +786,12 @@ function catGenElapsedLabel(item){
   var secs = Math.max(0,Math.round((Date.now()-item.genStartedAt)/1000));
   return secs<60 ? secs+'s' : (Math.floor(secs/60)+'m '+(secs%60)+'s');
 }
-
 function decisionSummary(item){
   if(!item.decision) return '';
   if(item.decision.type==='merge') return 'Will use the "'+item.decision.canonicalName+'" pattern.';
   if(item.decision.type==='confirm') return 'Confirmed - keeping the saved pattern.';
   return 'Approved as "'+item.decision.canonicalName+'".';
 }
-
 function renderCategoryCard(item,idx){
   var badgeClass = item.status==='new'?'b-new':(item.status==='saved'?'b-saved':'b-possible');
   var badgeText = item.status==='new'?'New':(item.status==='saved'?'Saved':'Possible Match');
@@ -885,7 +847,6 @@ function renderCategoryCard(item,idx){
   }
   return '<div class="catcard'+(item.decision?' done':'')+'"><span class="catcard-badge '+badgeClass+'">'+badgeText+'</span>'+body+doneNote+'</div>';
 }
-
 async function generateCategoryPreview(idx){
   var item = activeCatReview.queue[idx];
   item.generating = true; item.genError=null; item.genStartedAt = Date.now();
@@ -905,7 +866,6 @@ async function generateCategoryPreview(idx){
   item.generating = false;
   renderCategoryReview();
 }
-
 function convertPossibleToNew(idx){
   var item = activeCatReview.queue[idx];
   item.status = 'new';
@@ -913,7 +873,6 @@ function convertPossibleToNew(idx){
   renderCategoryReview();
   generateCategoryPreview(idx);
 }
-
 function decideCategoryCard(idx,type){
   var item = activeCatReview.queue[idx];
   if(type==='merge'){
@@ -932,7 +891,6 @@ function decideCategoryCard(idx,type){
   }
   renderCategoryReview();
 }
-
 function continueCategoryReview(){
   if(!activeCatReview) return;
   var allDone = activeCatReview.queue.every(function(item){return !!item.decision;});
@@ -983,7 +941,146 @@ function continueCategoryReview(){
   activeCatReview = null;
   resolveFn(finalMap);
 }
-
+// Round 26: bulk review tools for the category-review modal. Sits on top
+// of the exact same queue/decision structure the one-at-a-time cards use
+// (activeCatReview.queue, item.decision) - these just fill decisions in
+// faster, for the cases that don't need a careful look one at a time.
+//
+// "Approve All Ready" only auto-decides cards that are unambiguous:
+//   - 'new' cards that already have a successfully generated preview title
+//   - 'saved' cards with NO brand mismatch flagged
+// It deliberately skips 'possible' matches (merge-vs-new is a judgment
+// call) and any 'saved' card with a brand mismatch (that flag exists
+// specifically to get a human's eyes on it) - bulk-approving those would
+// undermine the exact safety checks those statuses exist for.
+function catrevApproveAllReady(){
+  if(!activeCatReview) return;
+  // Sync any in-progress typing first, same as renderCategoryReview does,
+  // so an edit sitting in a textarea isn't silently discarded by this pass.
+  activeCatReview.queue.forEach(function(item,idx){
+    var nameBox=document.getElementById('catcard-name-'+idx);
+    var titleBox=document.getElementById('catcard-box-'+idx);
+    if(nameBox) item.userName = nameBox.value;
+    if(titleBox) item.userTitle = titleBox.value;
+  });
+  var approved = 0, skipped = 0;
+  activeCatReview.queue.forEach(function(item){
+    if(item.decision) return;
+    if(item.status==='new'){
+      var title = (item.userTitle && item.userTitle.trim()!=='') ? item.userTitle.trim() : item.generatedTitle;
+      if(title && !item.generating){
+        var name = (item.userName && item.userName.trim()!=='') ? item.userName.trim() : (item.suggestedName || 'Uncategorized');
+        item.decision = {type:'approve',canonicalName:name,title:title};
+        approved++;
+      } else { skipped++; }
+    } else if(item.status==='saved' && !item.brandMismatch){
+      var savedTitle = (item.userTitle && item.userTitle.trim()!=='') ? item.userTitle.trim() : ((categoryLibrary.categories[item.canonical]||{}).exampleTitle||'');
+      if(savedTitle){
+        item.decision = {type:'confirm',canonicalName:item.canonical,title:savedTitle};
+        approved++;
+      } else { skipped++; }
+    } else {
+      skipped++;
+    }
+  });
+  renderCategoryReview();
+  var sub = document.getElementById('catrev-sub');
+  if(sub) sub.textContent = approved+' card'+(approved===1?'':'s')+' approved automatically. '+skipped+' still need a look (new categories without a title yet, possible matches, or brand mismatches).';
+}
+// Exports the current queue to an editable sheet: one row per category
+// card, with a Decision column the person fills in by hand (or hands to
+// someone else to fill in) instead of clicking through cards one at a
+// time in the browser. Re-upload with catrevUploadXlsx to apply it.
+function catrevDownloadXlsx(){
+  if(!activeCatReview) return;
+  activeCatReview.queue.forEach(function(item,idx){
+    var nameBox=document.getElementById('catcard-name-'+idx);
+    var titleBox=document.getElementById('catcard-box-'+idx);
+    if(nameBox) item.userName = nameBox.value;
+    if(titleBox) item.userTitle = titleBox.value;
+  });
+  var rows = activeCatReview.queue.map(function(item,idx){
+    var currentTitle = (item.userTitle && item.userTitle.trim()!=='') ? item.userTitle
+      : (item.status==='saved' ? ((categoryLibrary.categories[item.canonical]||{}).exampleTitle||'')
+      : (item.generatedTitle||''));
+    var currentName = (item.userName && item.userName.trim()!=='') ? item.userName : (item.canonical||item.suggestedName||'');
+    return {
+      'Idx': idx,
+      'Status': item.status,
+      'Category Name': currentName,
+      'Example Item': getPN(item.exampleRow),
+      'Raw Label Found': item.rawLabel,
+      'Possible Match To': item.status==='possible' ? item.bestGuess : '',
+      'Title': currentTitle,
+      'Decision (approve / confirm / merge)': item.decision ? item.decision.type : '',
+      'Merge Into (only if Decision=merge)': item.decision && item.decision.type==='merge' ? item.decision.canonicalName : ''
+    };
+  });
+  var ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:6},{wch:10},{wch:30},{wch:16},{wch:30},{wch:22},{wch:60},{wch:26},{wch:26}];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Category Review');
+  XLSX.writeFile(wb, 'category_review.xlsx');
+}
+// Reads a completed sheet back in and applies each row's Decision to the
+// matching queue card by Idx - same effect as clicking through the cards
+// by hand, just done all at once from an edited file. Rows left blank in
+// Decision are untouched (still need a manual look in the modal); rows
+// whose Idx doesn't match a real, still-undecided card are skipped and
+// reported rather than silently ignored, so a stale or edited sheet can't
+// quietly apply the wrong decision to the wrong card.
+function catrevUploadXlsx(file){
+  if(!activeCatReview || !file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var applied=0, skipped=0, errors=[];
+    try{
+      var wb = XLSX.read(e.target.result,{type:'array'});
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      var sheetRows = XLSX.utils.sheet_to_json(ws,{defval:''});
+      sheetRows.forEach(function(r){
+        var idx = parseInt(r['Idx'],10);
+        if(isNaN(idx) || idx<0 || idx>=activeCatReview.queue.length){ errors.push('Row with Idx "'+r['Idx']+'" does not match any card - skipped.'); skipped++; return; }
+        var item = activeCatReview.queue[idx];
+        if(item.decision){ return; } // already decided in-browser - never overwrite silently
+        var decisionType = String(r['Decision (approve / confirm / merge)']||'').trim().toLowerCase();
+        if(!decisionType) return; // left blank on purpose - still needs a manual look
+        var title = String(r['Title']||'').trim();
+        var name = String(r['Category Name']||'').trim();
+        if(decisionType==='approve'){
+          if(item.status!=='new'){ errors.push('Row '+idx+': "approve" only applies to New cards - skipped.'); skipped++; return; }
+          if(!title){ errors.push('Row '+idx+': "approve" needs a Title - skipped.'); skipped++; return; }
+          item.decision = {type:'approve',canonicalName:name||item.suggestedName||'Uncategorized',title:title};
+          applied++;
+        } else if(decisionType==='confirm'){
+          if(item.status!=='saved'){ errors.push('Row '+idx+': "confirm" only applies to Saved cards - skipped.'); skipped++; return; }
+          item.decision = {type:'confirm',canonicalName:item.canonical,title:title||((categoryLibrary.categories[item.canonical]||{}).exampleTitle||'')};
+          applied++;
+        } else if(decisionType==='merge'){
+          if(item.status!=='possible'){ errors.push('Row '+idx+': "merge" only applies to Possible Match cards - skipped.'); skipped++; return; }
+          var mergeInto = String(r['Merge Into (only if Decision=merge)']||'').trim();
+          if(!mergeInto){ errors.push('Row '+idx+': "merge" needs Merge Into filled in - skipped.'); skipped++; return; }
+          item.decision = {type:'merge',canonicalName:mergeInto};
+          applied++;
+        } else {
+          errors.push('Row '+idx+': unrecognized Decision "'+r['Decision (approve / confirm / merge)']+'" - must be approve, confirm, or merge. Skipped.');
+          skipped++;
+        }
+      });
+    }catch(ex){
+      errors.push('Could not read the file: '+(ex&&ex.message?ex.message:String(ex)));
+    }
+    renderCategoryReview();
+    var sub = document.getElementById('catrev-sub');
+    if(sub) sub.textContent = applied+' decision'+(applied===1?'':'s')+' applied from the sheet. '+skipped+' skipped.'+(errors.length?' First issue: '+errors[0]:'');
+    document.getElementById('catrev-upload-input').value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var upl = document.getElementById('catrev-upload-input');
+  if(upl) upl.addEventListener('change', function(){ catrevUploadXlsx(this.files[0]); });
+});
 function cancelCategoryReview(){
   if(!activeCatReview) return;
   var rejectFn = activeCatReview.reject;
@@ -991,7 +1088,6 @@ function cancelCategoryReview(){
   activeCatReview = null;
   rejectFn(new Error('cancelled'));
 }
-
 // ---- Round 25: saved-categories manager (merge/rename/delete + backup) ----
 function openCategoryManager(){
   renderCategoryManager();
@@ -1097,7 +1193,6 @@ function importCategoryRules(file){
   reader.readAsText(file);
   document.getElementById('catmgr-import-file').value='';
 }
-
 var CH = {
   amazon:{label:'Amazon',pill:'p-amz',max:200,target:185,
     rule:'Amazon title: MUST start with [Brand] [Part Number]. Then product type, key specs, features, keywords. Target 180-200 characters - under 150 is unacceptable. No special chars (! $ ? _ { }). No word repeated more than twice. Capitalize first letter of each major word.'},
@@ -1126,9 +1221,7 @@ var CH = {
     // asked for.
     rule:'Website/SEO title: MUST start with [Brand] [Part Number]. After that, follow this SAME slot order for every title in this run - use whichever slots the source data actually has for THIS item, in this order, skipping only a slot with no data (never reorder or swap slots row to row): 1) primary dimension/size (e.g. width, diameter, length, capacity), 2) material/construction descriptor (e.g. a coating, finish, or build type), 3) product type/category, 4) one differentiating secondary spec (e.g. a count, rate, or grade), if there is room. Reproduce any term\'s spelling, hyphenation, and punctuation EXACTLY as it appears in the source data - never hyphenate a term on one row and not on another, and always use the inch mark (") for inch measurements, never "in." or "inches" spelled out. Target 75-85 characters, hard max 85. If the full structured title would exceed the limit, drop the LAST slot(s) entirely rather than cutting a slot short - never end the title on a bare number with no unit, a dangling connector word (for/with/and/of/etc.), or a trailing comma.'}
 };
-
 var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
-
 // Round 25: categoryExample, when given, is an already-APPROVED reference
 // title for this exact row's category (either approved just now in this
 // run's review step, or saved from a previous run). This is fed to the
@@ -1156,7 +1249,6 @@ function buildTitlePrompt(chConfig,brand,pn,row,categoryExample){
   var packBlock = packQty ? '\n\nPACK QUANTITY - REQUIRED: This item\'s part number ends in "-'+packQty+'", meaning it ships in a pack quantity of '+packQty+'. The title MUST include this as the exact phrase "'+packPhrase(packQty)+'" (with the square brackets, exactly as shown) somewhere after the mandatory Brand + Part Number prefix. This is a REQUIRED element, not optional - if the title needs to be shortened to fit the character limit, drop other secondary slots (per the rule above) BEFORE ever dropping this pack-quantity phrase.' : '';
   return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+exampleBlock+packBlock+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
 }
-
 // Round 18: Website (hard max 70) and eBay (hard max 80) both require the
 // title to START with "{Brand} {Part Number}" AND fit within a much
 // tighter hard cap than Amazon's 200. If the brand name and part number
@@ -1183,11 +1275,9 @@ function checkTitlePrefixFits(chConfig,brand,pn){
     throw new Error('"'+brand+' '+pn+'" ('+prefixLen+' characters) alone already meets or exceeds the '+chConfig.label+' hard limit of '+chConfig.max+' characters - there is no room left for any title content after the mandatory Brand + Part Number prefix. This is a data issue, not an API issue: try a shorter Brand override, or use a channel with more room (like Amazon, 200 chars).');
   }
 }
-
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
 window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();});
-
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
   fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
@@ -1205,7 +1295,6 @@ function clearAll(){
   });
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
   updateConsolGrid();
-
   pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];lastPageTexts={};failedChunks=[];
   validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
   showMg3RetryBtn(false);
@@ -1225,11 +1314,9 @@ function clearAll(){
   showRetryFailedBtn(false);
   var qr=document.getElementById('qa-res');if(qr)qr.classList.remove('on');
 }
-
 function udrag(e,on){e.preventDefault();document.getElementById('uz').classList.toggle('drag',on);}
 function udrop(e){e.preventDefault();document.getElementById('uz').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadFile(f);}
 function fpick(e){var f=e.target.files[0];if(f)loadFile(f);}
-
 // Manufacturer exports often carry a merged "title" row above the real header
 // (e.g. a product-line banner spanning the sheet). Detect and skip any such
 // leading rows so the real header (>=2 non-empty cells) is used correctly.
@@ -1290,7 +1377,6 @@ function applyMergedCellValues(ws,aoa){
     }
   });
 }
-
 function parseSheetSections(ws){
   var aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
   if(!aoa.length)return{data:[],sections:0};
@@ -1334,7 +1420,6 @@ function parseSheetSections(ws){
   }
   return{data:data,sections:sections};
 }
-
 function loadFile(f){
   var reader=new FileReader();
   reader.onload=function(e){
@@ -1366,7 +1451,6 @@ function loadFile(f){
   };
   reader.readAsArrayBuffer(f);
 }
-
 function switchTab(idx,btn){
   document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.tab-nav button').forEach(function(b){b.classList.remove('active');});
@@ -1374,18 +1458,14 @@ function switchTab(idx,btn){
   btn.classList.add('active');
   if(idx===5)updateConsolGrid();
 }
-
 function setMsg(id,msg,type){var el=document.getElementById(id);if(!el)return;el.className='msg'+(type?' '+type:'');el.textContent=msg;}
-
 function setProg(t,pct,lbl){
   document.getElementById(t+'-pfill').style.width=pct+'%';
   document.getElementById(t+'-plbl').textContent=lbl;
   document.getElementById(t+'-prog').classList.toggle('on',pct>0&&pct<100);
 }
-
 function getPN(row){return row['Part Number']||row['part number']||row['PartNumber']||row['part_number']||row['SKU']||row['sku']||row['Model']||'';}
 function getBrand(row,ov){return ov||row['Brand']||row['brand']||row['Manufacturer']||row['manufacturer']||row['MFR']||'';}
-
 // Pack-size variant grouping: "40610-5" and "40610-50" are the same physical
 // product in different pack quantities, so they should get identical
 // generated content rather than independently-drifting AI output.
@@ -1430,7 +1510,6 @@ function swapPNInTitle(title,oldPN,newPN,max){
   }
   return enforceLimit(t,max);
 }
-
 // ---- Structured data (schema.org Product/ProductGroup JSON-LD) ----
 // Built ENTIRELY from fields already present in the merged row - no AI call,
 // no invented facts. Key Specs is always written by buildKeySpecs() as
@@ -1453,7 +1532,6 @@ function parseKeySpecsToProps(keySpecsStr){
   });
   return out;
 }
-
 // siblingSkus: every part number sharing this item's base key (from the
 // WHOLE sheet, not just rows processed so far), used to link pack-size
 // variants together under a shared ProductGroup. Note: Google's ProductGroup
@@ -1488,7 +1566,6 @@ function buildProductJsonLd(row,siblingSkus){
   }
   return product;
 }
-
 // Builds a baseKey -> [every part number sharing that base, in sheet order]
 // map from the WHOLE dataset, so ProductGroup variant lists are complete
 // even for rows processed early in the run (unlike the content-reuse cache,
@@ -1504,13 +1581,11 @@ function buildFamilyGroups(rows){
   });
   return groups;
 }
-
 function doStop(t){
   stops[t]=true;
   var btn=document.getElementById(t+'-stop');
   if(btn){btn.textContent='Stopping...';btn.disabled=true;}
 }
-
 function showStop(t,show){
   var btn=document.getElementById(t+'-stop');
   if(!btn)return;
@@ -1518,7 +1593,6 @@ function showStop(t,show){
   btn.disabled=false;
   btn.innerHTML='&#9632; Stop';
 }
-
 function showResume(t,show,idx){
   var btn=document.getElementById(t+'-resume');
   if(!btn)return;
@@ -1529,7 +1603,6 @@ function showResume(t,show,idx){
     btn.style.display='none';
   }
 }
-
 // Round 24: a plain word-boundary cut can still land on a fragment that
 // reads as broken, not just shorter - e.g. "...1" Width, 3" (a bare
 // trailing number with its unit chopped off) or "...Band Saw Blade for"
@@ -1563,18 +1636,14 @@ function enforceLimit(title,max){
   }
   return cut;
 }
-
 function toSlug(str){
   return String(str).toLowerCase().replace(/[^a-z0-9 ]/g,'-').replace(/ +/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'');
 }
-
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"');}
 function validate(){
   if(!fileData||!fileData.length)return'Please upload a file first.';
   return null;
 }
-
 // Round 14: a fetch() with no signal can hang indefinitely if the network
 // stalls or the API accepts the connection but never finishes responding -
 // there was previously no ceiling on how long a single request could take,
@@ -1643,7 +1712,6 @@ async function apiCall(prompt,maxTok,timeoutMs){
   }
   return text;
 }
-
 // Up to 5 attempts with backoff (3s, 6s, 12s, 24s - about 45s of patience
 // total instead of the old ~9s) before giving up. Catches transient
 // rate-limit/overload and network blips without forcing the user to hit
@@ -1685,7 +1753,6 @@ async function apiCallRetry(prompt, maxTok, maxAttempts){
   }
   throw lastErr;
 }
-
 // ---- TAB 1: Product Names ----
 async function runTab1(isResume){
   var err=validate();if(err){setMsg('t1-msg',err,'error');return;}
@@ -1693,7 +1760,6 @@ async function runTab1(isResume){
   var brand=document.getElementById('t1-brand').value.trim();
   var btn=document.getElementById('t1-gen');
   btn.disabled=true;stops.t1=false;showStop('t1',true);showResume('t1',false);
-
   var rows=fileData;
   var startIdx;
   var channel;
@@ -1725,7 +1791,6 @@ async function runTab1(isResume){
     runState.t1.resumeFrom = null;
     isFreshRun = true;
   }
-
   // Round 20: defensive repair for "Cannot read properties of undefined
   // (reading 'max')" - this crash meant `channel` (most likely the value
   // locked into runState.t1.channel and re-used across a Resume) did not
@@ -1743,7 +1808,6 @@ async function runTab1(isResume){
     runState.t1.channel=channel;
     setMsg('t1-msg','This run\'s output channel setting was not recognized (this can happen after switching app versions mid-run) - continuing with "'+CH[channel].label+'" instead. If any earlier rows in the table look wrong, re-generate them.','warn');
   }
-
   // Round 25b: brand-consistency check. Only on a fresh run, before the
   // category scan (so a corrected brand feeds both the row-generation
   // prefix AND the saved-category brand-mismatch check below). Silent and
@@ -1758,7 +1822,6 @@ async function runTab1(isResume){
       return;
     }
   }
-
   // Round 25: category review gate. Only on a genuinely fresh run - a
   // Resume continues with whatever category assignments this run already
   // resolved (runState.t1.categoryMap), same pattern as the channel lock
@@ -1783,13 +1846,10 @@ async function runTab1(isResume){
       runState.t1.categoryMap = catScan.byRowIndex.map(function(m){return (m&&m.canonical)?m.canonical:null;});
     }
   }
-
   document.getElementById('t1-res').classList.add('on');
   renderT1();
-
   var chs=channel==='all'?['amazon','ebay','website']:[channel];
   var variantCache1=buildVariantCache(results.t1);
-
   for(var i=startIdx;i<rows.length;i++){
     if(stops.t1){
       runState.t1.resumeFrom = i;
@@ -1832,7 +1892,6 @@ async function runTab1(isResume){
       renderT1();
     }
   }
-
   if(!stops.t1){
     runState.t1.resumeFrom = null;
     setProg('t1',100,'');
@@ -1847,7 +1906,6 @@ async function runTab1(isResume){
   showStop('t1',false);
   updateConsolGrid();
 }
-
 // Round 27: the actual per-row title-generation work, factored out of
 // runTab1()'s main loop so retryFailedT1Rows() can re-run it for just the
 // rows that failed, without duplicating this logic. Throws on failure (the
@@ -1935,12 +1993,10 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
     if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
   }
 }
-
 function showT1RetryBtn(show){
   var b=document.getElementById('t1-retry');
   if(b)b.style.display=show?'inline-block':'none';
 }
-
 // Round 27: re-runs only the rows whose title generation failed last time
 // (mirrors retryFailedMasterRecords()/retryFailedPages()) - re-reads each
 // failed row fresh from fileData (so any edits since the failed run are
@@ -1951,17 +2007,14 @@ async function retryFailedT1Rows(){
   var toRetry=t1Failures.slice();
   t1Failures=[];
   showT1RetryBtn(false);
-
   var btn=document.getElementById('t1-gen');
   btn.disabled=true;stops.t1=false;showStop('t1',true);showResume('t1',false);
   setMsg('t1-msg','Retrying '+toRetry.length+' failed row(s)...','info');
-
   var rows=fileData;
   var channel=runState.t1.channel||document.getElementById('t1-channel').value;
   var brand=document.getElementById('t1-brand').value.trim();
   var chs=channel==='all'?['amazon','ebay','website']:[channel];
   var variantCache1=buildVariantCache(results.t1);
-
   for(var ri=0;ri<toRetry.length;ri++){
     if(stops.t1){
       setMsg('t1-msg','Stopped retrying. '+t1Failures.length+' row(s) still unresolved.','warn');
@@ -1978,7 +2031,6 @@ async function retryFailedT1Rows(){
     }
     if(ri+1<toRetry.length&&!stops.t1)await new Promise(function(r){setTimeout(r,400);});
   }
-
   setProg('t1',100,'');
   setTimeout(function(){setProg('t1',0,'');},400);
   var failNote=t1Failures.length?(' '+t1Failures.length+' row(s) still could not be built.'):' All previously failed rows were built successfully.';
@@ -1990,7 +2042,6 @@ async function retryFailedT1Rows(){
   renderT1();
   updateConsolGrid();
 }
-
 function renderT1(){
   var isAll=results.t1.length&&results.t1[0].titles;
   var thead=document.getElementById('t1-thead');
@@ -2044,7 +2095,6 @@ function renderT1(){
   document.getElementById('t1-meta').textContent=results.t1.length+' item(s)';
   updSel();
 }
-
 function toggleAll(cb){
   document.querySelectorAll('.t1-chk').forEach(function(c){c.checked=cb.checked;});
   updSel();
@@ -2055,7 +2105,6 @@ function updSel(){
   var el=document.getElementById('t1-sel');
   if(el)el.textContent=n+' of '+t+' rows selected';
 }
-
 function genSlugs(){
   var checked=document.querySelectorAll('.t1-chk:checked');
   if(!checked.length){alert('Select at least one row.');return;}
@@ -2076,14 +2125,12 @@ function genSlugs(){
   document.getElementById('t1-slug-meta').textContent=results.slugs.length+' slug(s)';
   document.getElementById('t1-slug-res').classList.add('on');
 }
-
 // ---- TAB 2: Highlights ----
 async function runTab2(isResume){
   var err=validate();if(err){setMsg('t2-msg',err,'error');return;}
   setMsg('t2-msg','','');
   var btn=document.getElementById('t2-gen');
   btn.disabled=true;stops.t2=false;showStop('t2',true);showResume('t2',false);
-
   var startIdx;
   if(isResume && runState.t2.resumeFrom != null){
     startIdx = runState.t2.resumeFrom;
@@ -2093,11 +2140,9 @@ async function runTab2(isResume){
     results.t2=[];
     runState.t2.resumeFrom = null;
   }
-
   document.getElementById('t2-res').classList.add('on');
   renderTab('t2',results.t2);
   var variantCache2=buildVariantCache(results.t2);
-
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t2){
       runState.t2.resumeFrom = i;
@@ -2135,7 +2180,6 @@ async function runTab2(isResume){
       return;
     }
   }
-
   if(!stops.t2){
     runState.t2.resumeFrom = null;
     setProg('t2',100,'');
@@ -2148,14 +2192,12 @@ async function runTab2(isResume){
   showStop('t2',false);
   updateConsolGrid();
 }
-
 // ---- TAB 3: Description ----
 async function runTab3(isResume){
   var err=validate();if(err){setMsg('t3-msg',err,'error');return;}
   setMsg('t3-msg','','');
   var btn=document.getElementById('t3-gen');
   btn.disabled=true;stops.t3=false;showStop('t3',true);showResume('t3',false);
-
   var startIdx;
   if(isResume && runState.t3.resumeFrom != null){
     startIdx = runState.t3.resumeFrom;
@@ -2165,11 +2207,9 @@ async function runTab3(isResume){
     results.t3=[];
     runState.t3.resumeFrom = null;
   }
-
   document.getElementById('t3-res').classList.add('on');
   renderTab('t3',results.t3);
   var variantCache3=buildVariantCache(results.t3);
-
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t3){
       runState.t3.resumeFrom = i;
@@ -2231,7 +2271,6 @@ async function runTab3(isResume){
       return;
     }
   }
-
   if(!stops.t3){
     runState.t3.resumeFrom = null;
     setProg('t3',100,'');
@@ -2244,14 +2283,12 @@ async function runTab3(isResume){
   showStop('t3',false);
   updateConsolGrid();
 }
-
 // ---- TAB 4: HTML Tables ----
 async function runTab4(isResume){
   var err=validate();if(err){setMsg('t4-msg',err,'error');return;}
   setMsg('t4-msg','','');
   var btn=document.getElementById('t4-gen');
   btn.disabled=true;stops.t4=false;showStop('t4',true);showResume('t4',false);
-
   var startIdx;
   if(isResume && runState.t4.resumeFrom != null){
     startIdx = runState.t4.resumeFrom;
@@ -2261,11 +2298,9 @@ async function runTab4(isResume){
     results.t4=[];
     runState.t4.resumeFrom = null;
   }
-
   document.getElementById('t4-res').classList.add('on');
   renderTab('t4',results.t4);
   var variantCache4=buildVariantCache(results.t4);
-
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t4){
       runState.t4.resumeFrom = i;
@@ -2303,7 +2338,6 @@ async function runTab4(isResume){
       return;
     }
   }
-
   if(!stops.t4){
     runState.t4.resumeFrom = null;
     setProg('t4',100,'');
@@ -2316,8 +2350,6 @@ async function runTab4(isResume){
   showStop('t4',false);
   updateConsolGrid();
 }
-
-
 function renderTab(prefix,data){
   var tbody=document.getElementById(prefix+'-tbody');
   if(!data.length){
@@ -2335,7 +2367,6 @@ function renderTab(prefix,data){
   tbody.innerHTML=rows;
   document.getElementById(prefix+'-meta').textContent=data.length+' item(s)';
 }
-
 function cp(btn){
   var idx=parseInt(btn.getAttribute('data-idx'));
   var src=btn.getAttribute('data-src');
@@ -2349,7 +2380,6 @@ function cp(btn){
   var orig=btn.textContent;btn.textContent='Copied';
   setTimeout(function(){btn.textContent=orig;},1500);
 }
-
 function updateConsolGrid(){
   var items=[{key:'t1',label:'Product Names'},{key:'slugs',label:'URL Slugs'},{key:'t2',label:'Highlights'},{key:'t3',label:'Descriptions'},{key:'t4',label:'HTML Tables'}];
   var html='';
@@ -2361,7 +2391,6 @@ function updateConsolGrid(){
   html+='<div class="consol-item"><span class="consol-name">Structured Data (JSON-LD)</span><span class="consol-count'+(sdCount===0?' empty':'')+'">'+(sdCount>0?sdCount+' rows (automatic, no generate step needed)':'Not available - load data first')+'</span></div>';
   var el=document.getElementById('consol-grid');if(el)el.innerHTML=html;
 }
-
 function runConsolidate(){
   var hasAny=results.t1.length||results.t2.length||results.t3.length||results.t4.length||(fileData&&fileData.length);
   if(!hasAny){setMsg('t5-msg','No data yet - upload/merge a file, or generate at least one tab first.','error');return;}
@@ -2396,7 +2425,6 @@ function runConsolidate(){
   XLSX.writeFile(wb,'ListingIQ-Export.xlsx');
   setMsg('t5-msg','Export complete.','success');
 }
-
 function expCSV(prefix){
   var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
   var rows;
@@ -2410,7 +2438,6 @@ function expCSV(prefix){
   var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   dl(new Blob([csv],{type:'text/csv'}),prefix+'-output.csv');
 }
-
 function expXLSX(prefix){
   var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
   var rows;
@@ -2423,7 +2450,6 @@ function expXLSX(prefix){
   }
   var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);XLSX.utils.book_append_sheet(wb2,ws,'Output');XLSX.writeFile(wb2,prefix+'-output.xlsx');
 }
-
 function expSlugCSV(){
   if(!results.slugs.length)return;
   var rows=[['#','Part Number','Title','URL Slug']];
@@ -2431,7 +2457,6 @@ function expSlugCSV(){
   var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   dl(new Blob([csv],{type:'text/csv'}),'url-slugs.csv');
 }
-
 function expSlugXLSX(){
   if(!results.slugs.length)return;
   var wb2=XLSX.utils.book_new();
@@ -2440,14 +2465,11 @@ function expSlugXLSX(){
   var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:6},{wch:18},{wch:50},{wch:55}];
   XLSX.utils.book_append_sheet(wb2,ws,'URL Slugs');XLSX.writeFile(wb2,'url-slugs.xlsx');
 }
-
 function dl(blob,name){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href);},1000);}
-
 function dlCSV(){
   var csv=['"Part Number","Brand","Product Type","Key Specs","Additional Info 1","Additional Info 2","Additional Info 3"','"WR-4420-BLK","Wright Tool","Hand Tool","1/2 Drive, 12-Point, Chrome Vanadium","Heavy-duty forged steel construction","Meets ANSI standards for torque and hardness","For use in automotive and industrial applications"','"","","","","","",""','"","","","","","",""','"","","","","","",""'].join('\n');
   dl(new Blob([csv],{type:'text/csv'}),'ListingIQ-template.csv');
 }
-
 function dlXLSX(){
   var wb2=XLSX.utils.book_new();
   var data=[['Part Number','Brand','Product Type','Key Specs','Additional Info 1','Additional Info 2','Additional Info 3'],['WR-4420-BLK','Wright Tool','Hand Tool','1/2 Drive, 12-Point, Chrome Vanadium','Heavy-duty forged steel construction','Meets ANSI standards for torque and hardness','For use in automotive and industrial applications'],['','','','','','',''],['','','','','','',''],['','','','','','','']];
@@ -2458,7 +2480,6 @@ function dlXLSX(){
   XLSX.utils.book_append_sheet(wb2,ws2,'Instructions');
   XLSX.writeFile(wb2,'ListingIQ-template.xlsx');
 }
-
 // ================= MERGE DATA TAB (raw manufacturer spec sheet + PDF catalog -> clean ListingIQ input) =================
 // Point pdf.js at its worker script directly. An earlier version of this
 // routed the worker through a fetch()+blob: URL to avoid a cosmetic
@@ -2472,7 +2493,6 @@ function dlXLSX(){
 if(typeof pdfjsLib!=='undefined'){
   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
-
 var pdfFileObj = null;
 var catalogEntries = [];     // {item_no: string|null, family: string, content: string}
 var itemIndex = {};          // normalized item_no -> [entries]
@@ -2494,7 +2514,6 @@ var masterRecordOrder = [];  // baseKey build order, for the results table and E
 // getPromptData() correctly falls back to the item's raw merged row
 // instead of a fake empty record.
 var masterRecordFailures = [];
-
 // Round 27: {index, partNumber, error} for Product Name rows whose title
 // generation call failed (transient - empty response, the max_tokens/
 // thinking-only cutoff, rate limit, etc.) - tracked separately so one
@@ -2507,7 +2526,6 @@ var masterRecordFailures = [];
 // retried, never silently faked.
 var t1Failures = [];
 var qaResults = [];          // Phase 5: [{baseKey, partNumber, issues:[...]}]
-
 function udragPdf(e,on){e.preventDefault();document.getElementById('uz-pdf').classList.toggle('drag',on);}
 function udropPdf(e){e.preventDefault();document.getElementById('uz-pdf').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadPdfFile(f);}
 function fpickPdf(e){var f=e.target.files[0];if(f)loadPdfFile(f);}
@@ -2533,7 +2551,6 @@ async function loadPdfFile(f){
     if(hint)hint.textContent='Could not read page count ('+e.message+'). Leave the range blank to process all pages.';
   }
 }
-
 // "1-10", "18-22,25", "3" etc. Returns a Set of page numbers, or null to mean
 // "no range specified - process every page".
 function parsePageRange(str,maxPages){
@@ -2554,7 +2571,6 @@ function parsePageRange(str,maxPages){
   });
   return pages.size?pages:null;
 }
-
 function readFileAsArrayBuffer(f){
   return new Promise(function(resolve,reject){
     var r=new FileReader();
@@ -2563,7 +2579,6 @@ function readFileAsArrayBuffer(f){
     r.readAsArrayBuffer(f);
   });
 }
-
 // parseJsonLoose (below) is array-shaped - built for the catalog extraction
 // endpoint's `[...]` responses, including a truncation-salvage fallback that
 // itself returns an array. Phase 3 (Master Record) and Phase 5 (QA) prompts
@@ -2581,7 +2596,6 @@ function parseJsonObjectLoose(s){
   t=t.slice(start,end+1);
   try{return JSON.parse(t);}catch(e){return null;}
 }
-
 // Returns {items, truncated}. `truncated:true` means the strict JSON.parse
 // on the whole response failed - almost always because a dense page (lots of
 // items, each with a full technical_specs/features/applications payload)
@@ -2650,7 +2664,6 @@ function parseJsonLoose(s){
     return {items:out.length?out:null, truncated:true};
   }
 }
-
 // pdf.js's getTextContent() returns every text fragment in whatever order
 // they appear in the PDF's internal content stream - which for a table is
 // very often NOT reading order. In this catalog, naively joining item.str in
@@ -2682,7 +2695,6 @@ function layoutPageText(textContent){
     return l.items.sort(function(a,b){return a.x-b.x;}).map(function(it){return it.str;}).join(' ');
   }).join('\n');
 }
-
 function buildExtractPrompt(chunkText){
   return 'You are extracting structured data from pages of a manufacturer product catalog PDF, for an e-commerce data pipeline. The goal is a lossless, structured record of what\'s printed for each item - NOT a summary. Capture every distinct spec, feature, and application mentioned; do not compress or shorten to save space.\n\n'+
   'The text below was reconstructed line-by-line from the PDF\'s visual layout (top to bottom, left to right within each line) so it roughly reads like the original table, but it is NOT perfect: a description that wraps onto two lines in the original may appear as two separate lines here, and a single description sometimes applies to two or three item numbers listed together (a merged cell in the original table). Page numbers are marked "--- PAGE N ---". Content may include tables of items with an Item Number/Item No./SKU/Model/Code column, dimensional or technical specs, a "Recommended Uses" or similar column of per-item notes, and marketing copy like "Applications" or "Features & Benefits" describing a whole product line rather than one item.\n\n'+
@@ -2703,7 +2715,6 @@ function buildExtractPrompt(chunkText){
   '- Respond with ONLY a JSON array. No markdown, no explanation, no code fences.\n\n'+
   'PAGE TEXT:\n'+chunkText;
 }
-
 // Flattens a structured catalog entry (technical_specs/features/applications)
 // into readable text - used anywhere downstream still wants one string (Key
 // Specs display, the merge preview, Additional Info columns) until Phase 2/3
@@ -2725,7 +2736,6 @@ function flattenEntryText(e){
   if(e.applications&&e.applications.length)parts.push('Applications: '+e.applications.join('; '));
   return parts.join('. ');
 }
-
 function buildCatalogIndices(){
   itemIndex={};familyIndex={};
   catalogEntries.forEach(function(e){
@@ -2740,7 +2750,6 @@ function buildCatalogIndices(){
     }
   });
 }
-
 function lookupCatalogItem(raw){
   if(!raw)return null;
   var key=String(raw).toUpperCase();
@@ -2752,7 +2761,6 @@ function lookupCatalogItem(raw){
   }
   return null;
 }
-
 // Deliberately conservative: only a (near-)full substring match counts. A
 // looser "shares one significant word" match sounds appealing but in this
 // industry almost every section title contains words like "blades", "saw"
@@ -2769,7 +2777,6 @@ function fuzzyFamilyMatch(sectionText){
   }
   return null;
 }
-
 function renderCatalogPreview(){
   document.getElementById('mg1-res').classList.add('on');
   var tbody=document.getElementById('mg1-tbody');
@@ -2789,7 +2796,6 @@ function renderCatalogPreview(){
   var moreNote=catalogEntries.length>300?' (showing first 300)':'';
   document.getElementById('mg1-meta').textContent=catalogEntries.length+' entries'+moreNote;
 }
-
 // A page-chunk that failed extraction (even after apiCallRetry's internal
 // retries - typically heavy concurrent API load) is recorded as a
 // catalogEntries row with no item_no, exactly like a real product-line-level
@@ -2799,7 +2805,6 @@ function renderCatalogPreview(){
 function isFailurePlaceholder(e){
   return !!(e&&e.family&&e.family.indexOf('[extraction warning:')===0);
 }
-
 // Extracts one chunk of pages (using the already-cached lastPageTexts) and
 // pushes either real entries or a failure placeholder + failedChunks record.
 // Shared by the main extraction run and by retryFailedPages() so a retry
@@ -2838,7 +2843,6 @@ function tickExtractLabel(baseText){
     el.innerHTML='<span class="spinner"></span>'+baseText+' - '+secs+'s elapsed';
   },1000);
 }
-
 async function extractChunkPages(chunkPages, opts){
   opts=opts||{};
   var chunkText='';
@@ -2950,7 +2954,6 @@ async function extractChunkPages(chunkPages, opts){
     if(ticker)clearInterval(ticker);
   }
 }
-
 // Builds the Step 1 result message. Failed chunks are called out explicitly
 // and distinctly from real product-line-level entries - never silently
 // blended into a "success"-looking count - and the message class switches to
@@ -2968,24 +2971,20 @@ function buildExtractionMsg(){
   }
   return{text:base+'. Now run Step 2 to merge with your spec sheet.',cls:'success'};
 }
-
 function showRetryFailedBtn(show){
   var b=document.getElementById('mg1-retry');
   if(b)b.style.display=show?'inline-block':'none';
 }
-
 async function extractCatalog(){
   setMsg('mg1-msg','','');
   if(!pdfFileObj){setMsg('mg1-msg','Please upload a catalog PDF first.','error');return;}
   if(!getKey()){setMsg('mg1-msg','Please save your API key at the top of the page first.','error');return;}
   if(typeof pdfjsLib==='undefined'){setMsg('mg1-msg','PDF reader library failed to load. Check your connection and reload the page.','error');return;}
-
   catalogEntries=[];itemIndex={};familyIndex={};lastPageTexts={};failedChunks=[];
   renderCatalogPreview();
   showRetryFailedBtn(false);
   var btn=document.getElementById('mg1-gen');
   btn.disabled=true;stops.mg1=false;showStop('mg1',true);
-
   try{
     var buf=await readFileAsArrayBuffer(pdfFileObj);
     var pdf=await pdfjsLib.getDocument({data:buf}).promise;
@@ -2993,7 +2992,6 @@ async function extractCatalog(){
     var pageRange=parsePageRange(document.getElementById('mg-pagerange').value,numPages);
     var pagesToRead=pageRange?Array.from(pageRange).sort(function(a,b){return a-b;}):Array.from({length:numPages},function(_,i){return i+1;});
     lastNumPages=numPages;lastPagesToRead=pagesToRead;lastHadPageRange=!!pageRange;
-
     for(var pi=0;pi<pagesToRead.length;pi++){
       var pNum=pagesToRead[pi];
       setProg('mg1',Math.round((pi/pagesToRead.length)*40),'Reading page '+pNum+' ('+(pi+1)+' of '+pagesToRead.length+' selected)');
@@ -3001,7 +2999,6 @@ async function extractCatalog(){
       var tc=await page.getTextContent();
       lastPageTexts[pNum]=layoutPageText(tc);
     }
-
     // Round 17: one page per request, always - not "2 pages, split to 1 on
     // failure" anymore. That 2-page batching (rounds 12-16) was meant purely
     // as a cost/speed optimization for the ~90% of pages that are light, but
@@ -3045,7 +3042,6 @@ async function extractCatalog(){
       // something else is sharing the same API key concurrently.
       if(c+CHUNK<pagesToRead.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
     }
-
     buildCatalogIndices();
     setProg('mg1',100,'');
     setTimeout(function(){setProg('mg1',0,'');},400);
@@ -3059,13 +3055,11 @@ async function extractCatalog(){
     setMsg('mg1-msg','Failed to read/extract catalog: '+err.message+extra,'error');
     setProg('mg1',0,'');
   }
-
   btn.disabled=false;
   document.getElementById('mg1-lbl').textContent='1. Extract Catalog Content';
   showStop('mg1',false);
   renderCatalogPreview();
 }
-
 // Re-runs extraction ONLY for the page-chunks that failed last time, using
 // the cached page text (no need to re-read the PDF) - so a transient load
 // spike doesn't force redoing a whole 30+ page catalog from scratch.
@@ -3091,12 +3085,10 @@ async function retryFailedPages(){
     return!e._srcPages.some(function(p){return retryPages[p];});
   });
   failedChunks=[];
-
   setMsg('mg1-msg','Retrying '+toRetry.length+' failed page-range(s)...','info');
   showRetryFailedBtn(false);
   var btn=document.getElementById('mg1-gen');
   btn.disabled=true;stops.mg1=false;showStop('mg1',true);
-
   for(var i=0;i<toRetry.length;i++){
     if(stops.mg1){
       setMsg('mg1-msg','Stopped retrying. '+failedChunks.length+' page-range(s) still unresolved.','warn');
@@ -3108,7 +3100,6 @@ async function retryFailedPages(){
     renderCatalogPreview();
     if(i+1<toRetry.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
   }
-
   buildCatalogIndices();
   setProg('mg1',100,'');
   setTimeout(function(){setProg('mg1',0,'');},400);
@@ -3117,13 +3108,11 @@ async function retryFailedPages(){
     setMsg('mg1-msg',summary.text,summary.cls);
   }
   showRetryFailedBtn(failedChunks.length>0);
-
   btn.disabled=false;
   document.getElementById('mg1-lbl').textContent='1. Extract Catalog Content';
   showStop('mg1',false);
   renderCatalogPreview();
 }
-
 // A field counts as "real spec data" (kept in Key Specs / used for
 // validation) when it isn't the item column, the Section marker, a
 // note/pointer column, a boilerplate-repeated column, a price column (not a
@@ -3141,7 +3130,6 @@ function isRealSpecField(k,itemCol,boilerplateCols){
   if(boilerplateCols&&boilerplateCols[k])return false;
   return true;
 }
-
 function buildKeySpecs(row,itemCol,boilerplateCols){
   var parts=[];
   Object.keys(row).forEach(function(k){
@@ -3154,7 +3142,6 @@ function buildKeySpecs(row,itemCol,boilerplateCols){
   });
   return parts.join(', ');
 }
-
 // Phase 2 (Master Record redesign): most manufacturer sheets only print full
 // specs once per base item and leave a pack-size sibling's own spec columns
 // blank (e.g. "40432-5" has Length/Width/T.P.I., "40432-50" has none of
@@ -3182,7 +3169,6 @@ function buildExcelBackfillMap(rows,detectedCol,stripSuffix){
   });
   return byBase;
 }
-
 // Normalizes a field name for cross-source comparison ("T.P.I." vs "TPI" vs
 // "tpi" should all be treated as the same field) - used only for matching
 // Excel field names against catalog technical_specs field names, not for
@@ -3190,7 +3176,6 @@ function buildExcelBackfillMap(rows,detectedCol,stripSuffix){
 function normalizeFieldKey(k){
   return String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
 }
-
 // Deterministic (no AI) comparison of this row's Excel fields against the
 // catalog's technical_specs for the same item - flags two things a human
 // should look at before generating listing content: a spec that's genuinely
@@ -3217,7 +3202,6 @@ function validateRowAgainstCatalog(partNumber,baseKey,excelFields,itemCol,boiler
     validationFlags.push({baseKey:baseKey,partNumber:partNumber,type:'missing',field:null,excelValue:'',pdfValue:'',detail:'No spec data and no catalog content found for this item from either source.'});
   }
 }
-
 function renderValidationSummary(){
   var el=document.getElementById('mg-validation');
   if(!el)return;
@@ -3233,7 +3217,6 @@ function renderValidationSummary(){
   el.innerHTML='<div class="res-hdr"><div class="res-title">Needs Review</div><div class="res-meta">'+conflicts.length+' conflict(s), '+missing.length+' missing'+moreNote+'</div></div>'+
     '<div class="tbl-wrap"><table><thead><tr><th>Part Number</th><th>Type</th><th>Detail</th></tr></thead><tbody>'+(rows||'<tr><td colspan="3" style="color:var(--faint);font-style:italic;text-align:center;padding:12px;">None</td></tr>')+'</tbody></table></div>';
 }
-
 // Round 21: Ahmed reported "Build Master Records" refusing to run with "Run
 // Step 2 (or 'Build Rows From Catalog Only') first" more than once, in a
 // PDF-only workflow (no Excel spec sheet). Direct testing confirmed the
@@ -3254,7 +3237,6 @@ function updateMg3Gate(){
   btn.disabled=!ready;
   hint.style.display=ready?'none':'block';
 }
-
 // ---- Phase 3: Master Record synthesis ----
 // One AI call per unique base item (pack-size siblings share a record, same
 // grouping as the round-5 content-reuse cache) that combines the already-
@@ -3281,12 +3263,10 @@ function buildMasterRecordPrompt(excelSpecsText,pdfItemText,pdfFamilyText,confli
   '- If genuinely no data exists for one of the three fields, use an empty object/array for it rather than guessing.\n'+
   '- Respond with ONLY the JSON object. No markdown, no explanation, no code fences.';
 }
-
 async function buildMasterRecords(isResume){
   if(!mergedForFileData||!mergedForFileData.length){setMsg('mg3-msg','Run Step 2 (or "Build Rows From Catalog Only") first.','error');return;}
   var btn=document.getElementById('mg3-gen');
   btn.disabled=true;stops.mg3=false;showStop('mg3',true);showResume('mg3',false);
-
   // One unique base item per record - same pack-size grouping used everywhere else in the app.
   var items=[];
   var seen={};
@@ -3299,14 +3279,12 @@ async function buildMasterRecords(isResume){
       items.push(seen[bKey]);
     }
   });
-
   var startIdx=(isResume&&runState.mg3.resumeFrom!=null)?runState.mg3.resumeFrom:0;
   if(!isResume){masterRecords={};masterRecordOrder=[];masterRecordFailures=[];}
   setMsg('mg3-msg',isResume?('Resuming from item '+(startIdx+1)+'...'):'','info');
   document.getElementById('mg3-res').classList.add('on');
   if(!isResume)showMg3RetryBtn(false);
   renderMasterRecords();
-
   for(var i=startIdx;i<items.length;i++){
     if(stops.mg3){
       runState.mg3.resumeFrom=i;
@@ -3371,7 +3349,6 @@ async function buildMasterRecords(isResume){
       renderMasterRecords();
     }
   }
-
   setProg('mg3',100,'');
   setTimeout(function(){setProg('mg3',0,'');},400);
   var failNote=masterRecordFailures.length?(' '+masterRecordFailures.length+' item(s) could not be built (shown below, click "Retry Failed Items" to try again) - Product Name and the other tabs will use the raw merged row for those instead, so nothing is blocked.'):'';
@@ -3382,12 +3359,10 @@ async function buildMasterRecords(isResume){
   document.getElementById('mg3-lbl').textContent='3. Build Master Records';
   showStop('mg3',false);
 }
-
 function showMg3RetryBtn(show){
   var b=document.getElementById('mg3-retry');
   if(b)b.style.display=show?'inline-block':'none';
 }
-
 // Round 25c: re-runs only the items whose master-record build failed last
 // time (mirrors retryFailedPages() for extraction) - uses the cached
 // excelSpecsText/pdfItemText/pdfFamilyText already captured at failure time,
@@ -3398,12 +3373,10 @@ async function retryFailedMasterRecords(){
   var toRetry=masterRecordFailures.slice();
   masterRecordFailures=[];
   showMg3RetryBtn(false);
-
   var btn=document.getElementById('mg3-gen');
   btn.disabled=true;stops.mg3=false;showStop('mg3',true);showResume('mg3',false);
   setMsg('mg3-msg','Retrying '+toRetry.length+' failed item(s)...','info');
   renderMasterRecords();
-
   for(var i=0;i<toRetry.length;i++){
     if(stops.mg3){
       setMsg('mg3-msg','Stopped retrying. '+masterRecordFailures.length+' item(s) still unresolved.','warn');
@@ -3440,7 +3413,6 @@ async function retryFailedMasterRecords(){
     }
     if(i+1<toRetry.length&&!stops.mg3)await new Promise(function(r){setTimeout(r,400);});
   }
-
   setProg('mg3',100,'');
   setTimeout(function(){setProg('mg3',0,'');},400);
   var failNote=masterRecordFailures.length?(' '+masterRecordFailures.length+' item(s) still could not be built.'):' All previously failed items were built successfully.';
@@ -3451,7 +3423,6 @@ async function retryFailedMasterRecords(){
   showStop('mg3',false);
   renderMasterRecords();
 }
-
 function renderMasterRecords(){
   var tbody=document.getElementById('mg3-tbody');
   if(!masterRecordOrder.length&&!masterRecordFailures.length){
@@ -3480,7 +3451,6 @@ function renderMasterRecords(){
   if(masterRecordFailures.length)meta+=', '+masterRecordFailures.length+' failed (skipped)';
   document.getElementById('mg3-meta').textContent=meta;
 }
-
 function downloadMasterRecords(){
   if(!masterRecordOrder.length){alert('No master records built yet.');return;}
   var rows=[['Base Item','Sources','Technical Specs','Features','Applications']];
@@ -3493,7 +3463,6 @@ function downloadMasterRecords(){
   var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:16},{wch:20},{wch:60},{wch:40},{wch:40}];
   XLSX.utils.book_append_sheet(wb2,ws,'Master Records');XLSX.writeFile(wb2,'master-records.xlsx');
 }
-
 // ---- Phase 5: QA ----
 // Two layers, run together by one button: deterministic checks (free,
 // instant, no AI) plus one AI check per unique base item that actually has
@@ -3503,7 +3472,6 @@ function downloadMasterRecords(){
 function stripHtmlForCompare(html){
   return String(html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().toLowerCase();
 }
-
 function runDeterministicQA(){
   var flags=[];
   // Two DIFFERENT base items with identical Highlights/Description/Table
@@ -3539,7 +3507,6 @@ function runDeterministicQA(){
   });
   return flags;
 }
-
 function buildQAPrompt(generatedText,sourceText){
   return 'You are checking generated e-commerce listing content for unsupported claims against its verified source data.\n\n'+
   'GENERATED LISTING CONTENT:\n'+generatedText+'\n\n'+
@@ -3547,14 +3514,12 @@ function buildQAPrompt(generatedText,sourceText){
   'Compare the generated content against the source data. Flag ONLY facts/claims/specs in the generated content that are NOT supported by the source data (invented, assumed, or added). Do not flag stylistic rewording (e.g. "10 inches" vs "10\\"") - only flag genuinely unsupported information.\n\n'+
   'Respond with ONLY a JSON object: {"ok": true|false, "issues": ["<short description of each unsupported claim>", ...]}. If everything is supported, respond {"ok": true, "issues": []}.';
 }
-
 async function runQACheck(){
   var btn=document.getElementById('qa-gen');
   if(btn)btn.disabled=true;
   setMsg('qa-msg','Running checks...','info');
   qaResults=runDeterministicQA();
   renderQAResults();
-
   var items=[];var seen={};
   ['t1','t2','t3','t4'].forEach(function(t){
     (results[t]||[]).forEach(function(r){
@@ -3564,7 +3529,6 @@ async function runQACheck(){
       items.push({baseKey:bKey,partNumber:r.partNumber});
     });
   });
-
   for(var i=0;i<items.length;i++){
     setMsg('qa-msg','Checking item '+(i+1)+' of '+items.length+' for unsupported claims...','info');
     var it=items[i];
@@ -3606,11 +3570,9 @@ async function runQACheck(){
     }
     renderQAResults();
   }
-
   if(btn)btn.disabled=false;
   setMsg('qa-msg',qaResults.length?(qaResults.length+' issue(s) found - review below before publishing.'):'No issues found.',qaResults.length?'warn':'success');
 }
-
 function renderQAResults(){
   var el=document.getElementById('qa-res');
   if(!el)return;
@@ -3627,7 +3589,6 @@ function renderQAResults(){
   }).join('');
   tbody.innerHTML=rows;
 }
-
 // Formats a master record back into the same "Label: value, Label: value"
 // shape buildKeySpecs() produces, plus Features/Applications lines - used by
 // the Phase 4 generators so a master record can drop into the same prompt
@@ -3641,7 +3602,6 @@ function formatMasterRecordText(rec){
   if(rec.applications&&rec.applications.length)parts.push('Applications: '+rec.applications.join('; '));
   return parts.join('. ');
 }
-
 // ---- Phase 4: generators consume the Master Record when one exists ----
 // If Step 3 built a master record for this row's base item, use its already
 // -verified technical_specs/features/applications as the PRODUCT DATA
@@ -3661,7 +3621,6 @@ function getPromptData(row,pn){
   if(rec.applications&&rec.applications.length)data['Applications']=rec.applications;
   return data;
 }
-
 function renderMergePreview(){
   document.getElementById('mg2-res').classList.add('on');
   var tbody=document.getElementById('mg2-tbody');
@@ -3681,7 +3640,6 @@ function renderMergePreview(){
   var moreNote=mergedPreviewRows.length>300?' (showing first 300)':'';
   document.getElementById('mg2-meta').textContent=mergedPreviewRows.length+' row(s)'+moreNote;
 }
-
 // If the user leaves the Item/Part Number column field blank, try to find it
 // automatically instead of silently failing. getPN() (used by the rest of the
 // app) only matches a handful of exact template header names like "Part
@@ -3702,7 +3660,6 @@ function guessItemColumn(sampleRow){
   }
   return null;
 }
-
 // A column counts as "boilerplate" (excluded from Key Specs) when it repeats
 // the same one or two long values across many rows - e.g. a pointer note like
 // "Additional Information In the catalog" that a manufacturer sheet repeats
@@ -3731,18 +3688,15 @@ function detectBoilerplateColumns(rows){
   });
   return boilerplate;
 }
-
 function mergeData(){
   setMsg('mg2-msg','','');
   if(!fileData||!fileData.length){setMsg('mg2-msg','Upload your manufacturer spec sheet in the box at the top of the page first - or, if you only have a PDF catalog and no spec sheet, use "Build Rows From Catalog Only" above instead.','error');return;}
-
   var brand=document.getElementById('mg-brand').value.trim();
   var itemColInput=document.getElementById('mg-itemcol').value.trim();
   var detectedCol=itemColInput||guessItemColumn(fileData[0])||'';
   var stripSuffix=document.getElementById('mg-strip').checked;
   var boilerplateCols=detectBoilerplateColumns(fileData);
   var backfillMap=buildExcelBackfillMap(fileData,detectedCol||null,stripSuffix);
-
   mergedForFileData=[];mergedPreviewRows=[];
   validationFlags=[];
   masterRecords={};masterRecordOrder=[];qaResults=[]; // a fresh merge invalidates any master records/QA built against the old data
@@ -3756,7 +3710,6 @@ function mergeData(){
   // to become a real listing, not silently disappear because nothing in
   // the spreadsheet pointed at it.
   var claimedItemKeys={};
-
   fileData.forEach(function(row){
     var rawVal=String(detectedCol?(row[detectedCol]||''):(getPN(row)||'')).trim();
     var base=stripSuffix?rawVal.replace(/-\d+$/,''):rawVal;
@@ -3816,7 +3769,6 @@ function mergeData(){
     mergedPreviewRows.push({partNumber:rawVal,matched:matched,productType:clean['Product Type'],keySpecs:keySpecs,ai1:itemContent||familyExtra});
     validateRowAgainstCatalog(rawVal,base,effectiveRow,detectedCol||null,boilerplateCols,pdfSpecs,!!(keySpecs||itemContent||familyExtra));
   });
-
   // Round 15: add any catalog item that was never claimed by an Excel row
   // above as its own row, instead of leaving it out entirely. Without this,
   // a manufacturer PDF catalog that lists items the spec sheet doesn't
@@ -3850,7 +3802,6 @@ function mergeData(){
     mergedPreviewRows.push({partNumber:e.item_no,matched:true,catalogOnly:true,productType:clean['Product Type'],keySpecs:'',ai1:ownContent||famExtra});
     catalogOnlyAdded++;
   });
-
   renderMergePreview();
   renderValidationSummary();
   var pct=fileData.length?Math.round(matchedCount/fileData.length*100):0;
@@ -3868,7 +3819,6 @@ function mergeData(){
   }
   updateMg3Gate();
 }
-
 function buildRowsFromCatalogOnly(){
   if(!catalogEntries.length){alert('Run Step 1 (Extract Catalog Content) first.');return;}
   var brand=document.getElementById('mg-brand').value.trim();
@@ -3903,7 +3853,6 @@ function buildRowsFromCatalogOnly(){
   setMsg('mg2-msg',mergedForFileData.length+' product row(s) built directly from the catalog (no spec sheet used). These have no dimensional Key Specs since that data usually lives in the spec sheet, not the catalog text - review before generating listings.','success');
   updateMg3Gate();
 }
-
 function useMergedData(){
   if(!mergedForFileData.length){alert('Run the merge first.');return;}
   fileData=mergedForFileData;
@@ -3921,7 +3870,6 @@ function useMergedData(){
   var btns=document.querySelectorAll('.tab-nav button');
   switchTab(1,btns[1]);
 }
-
 function downloadCatalogIndex(){
   if(!catalogEntries.length){alert('No catalog data extracted yet.');return;}
   var rows=[['Item No.','Product Family','Technical Specs','Features','Applications','Extracted Content (combined)']];
@@ -3934,7 +3882,6 @@ function downloadCatalogIndex(){
   var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:14},{wch:36},{wch:50},{wch:40},{wch:40},{wch:90}];
   XLSX.utils.book_append_sheet(wb2,ws,'Catalog Extract');XLSX.writeFile(wb2,'catalog-extract.xlsx');
 }
-
 function downloadMergedXLSX(){
   if(!mergedForFileData.length){alert('No merged data yet.');return;}
   var headers=['Part Number','Brand','Product Type','Key Specs','Additional Info 1','Additional Info 2','Additional Info 3'];
