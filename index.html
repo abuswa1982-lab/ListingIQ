@@ -1060,11 +1060,14 @@ function catrevUploadXlsx(file){
         if(decisionType==='approve'){
           if(item.status!=='new'){ errors.push('Category "'+name+'": "approve" only applies to New cards - skipped.'); skipped++; return; }
           if(!title){ errors.push('Category "'+name+'": "approve" needs a Title - skipped.'); skipped++; return; }
-          item.decision = {type:'approve',canonicalName:name||item.suggestedName||'Uncategorized',title:title};
+          item.userName = name||item.suggestedName||'Uncategorized';
+          item.userTitle = title;
+          item.decision = {type:'approve',canonicalName:item.userName,title:title};
           applied++;
         } else if(decisionType==='confirm'){
           if(item.status!=='saved'){ errors.push('Category "'+name+'": "confirm" only applies to Saved cards - skipped.'); skipped++; return; }
-          item.decision = {type:'confirm',canonicalName:item.canonical,title:title||((categoryLibrary.categories[item.canonical]||{}).exampleTitle||'')};
+          item.userTitle = title||((categoryLibrary.categories[item.canonical]||{}).exampleTitle||'');
+          item.decision = {type:'confirm',canonicalName:item.canonical,title:item.userTitle};
           applied++;
         } else if(decisionType==='merge'){
           if(item.status!=='possible'){ errors.push('Category "'+name+'": "merge" only applies to Possible Match cards - skipped.'); skipped++; return; }
@@ -2760,6 +2763,60 @@ function flattenEntryText(e){
   if(e.applications&&e.applications.length)parts.push('Applications: '+e.applications.join('; '));
   return parts.join('. ');
 }
+// Fix for a confirmed real-world case (Sterling catalog, NXT-CT Carbide
+// Tipped line, page 5): some catalog pages give one Applications note per
+// sub-variant (e.g. per Grind/Tooth style) rather than one note that
+// genuinely applies to the whole product line - "Triple chip pattern for
+// difficult machining materials" vs "** Set tooth for aluminum castings
+// and foundry applications" are two different notes for two different
+// Grind values, not one shared note. Blindly attaching every family-level
+// application phrase to every item in that family means an item can
+// inherit an application note that actually belongs to a different
+// sub-variant than the one it actually is.
+//
+// This only ever touches the applications array of family-level (item_no
+// null) entries - features and technical_specs are never filtered by
+// this, since those were confirmed to be genuinely shared across variants.
+// A phrase is only ever dropped when it explicitly names a specific known
+// variant keyword AND that keyword does not appear anywhere in this
+// item's own spec values - a generic phrase naming no variant keyword at
+// all is always kept, and if this item's own specs are unknown (e.g. no
+// direct catalog match was found for it) nothing is filtered, preserving
+// the exact previous behavior for that case.
+var CATALOG_VARIANT_KEYWORDS=['triple chip','set tooth','hvy set','heavy set','negative grind','negative','coated grind','coated','special grind'];
+function normalizeGrindLabel(text){
+  var t=String(text||'').toLowerCase();
+  if(/\btriple chip\b/.test(t))return'triple chip';
+  if(/\bhvy set\b|\bheavy set\b/.test(t))return'hvy set';
+  if(/\bnegative\b/.test(t))return'negative';
+  if(/\bcoated\b/.test(t))return'coated';
+  if(/\bspecial\b/.test(t))return'special';
+  if(/\bset\b/.test(t))return'set';
+  return null;
+}
+function applicationMatchesItemVariant(phrase,pdfSpecs){
+  var phraseGrind=normalizeGrindLabel(phrase);
+  if(!phraseGrind)return true;
+  var specValuesText=Object.keys(pdfSpecs||{}).map(function(k){return String(pdfSpecs[k]||'');}).join(' ');
+  if(!specValuesText)return true;
+  var itemGrind=normalizeGrindLabel(specValuesText);
+  if(!itemGrind)return true;
+  return phraseGrind===itemGrind;
+}
+function flattenFamilyEntryForItem(e,pdfSpecs){
+  if(!e)return'';
+  if(e.content)return e.content;
+  if(e.applications&&e.applications.length){
+    var kept=e.applications.filter(function(phrase){return applicationMatchesItemVariant(phrase,pdfSpecs);});
+    if(kept.length!==e.applications.length){
+      var copy={};
+      Object.keys(e).forEach(function(k){copy[k]=e[k];});
+      copy.applications=kept;
+      return flattenEntryText(copy);
+    }
+  }
+  return flattenEntryText(e);
+}
 function buildCatalogIndices(){
   itemIndex={};familyIndex={};
   catalogEntries.forEach(function(e){
@@ -3761,7 +3818,7 @@ function mergeData(){
     }
     var familyExtra='';
     if(family&&familyIndex[family.toLowerCase()]){
-      familyExtra=familyIndex[family.toLowerCase()].map(flattenEntryText).filter(Boolean).join(' ');
+      familyExtra=familyIndex[family.toLowerCase()].map(function(e){return flattenFamilyEntryForItem(e,pdfSpecs);}).filter(Boolean).join(' ');
       familyIndex[family.toLowerCase()].forEach(function(m){if(m.technical_specs)Object.keys(m.technical_specs).forEach(function(k){if(pdfSpecs[k]===undefined)pdfSpecs[k]=m.technical_specs[k];});});
     }
     // No direct item-number hit: fall back to matching this row's detected
@@ -3858,7 +3915,7 @@ function buildRowsFromCatalogOnly(){
     seen[key]=true;
     var familyExtra='';
     if(e.family&&familyIndex[e.family.toLowerCase()]){
-      familyExtra=familyIndex[e.family.toLowerCase()].map(flattenEntryText).filter(Boolean).join(' ');
+      familyExtra=familyIndex[e.family.toLowerCase()].map(function(fe){return flattenFamilyEntryForItem(fe,e.technical_specs);}).filter(Boolean).join(' ');
     }
     var ownContent=flattenEntryText(e);
     var clean={
