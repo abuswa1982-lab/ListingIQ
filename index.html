@@ -552,11 +552,33 @@ function normalizeCategoryLabel(raw){
   return (raw||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
 }
 function categoryTokens(norm){
-  return norm.split(/[^a-z0-9]+/).filter(Boolean);
+  return norm.split(/[^a-z0-9]+/).filter(Boolean).map(stemCategoryToken);
 }
-// Simple Jaccard token-overlap similarity (0-1) - good enough to catch
-// "Torque Wrenches" / "Torque Wrench" / "Wrenches, Torque" / "Sawplanes" vs.
-// "Saw Blades"-style near-duplicates without any external dependency.
+// Light suffix-stripping so "Gloves"/"Glove" and "Manufacturer"/
+// "Manufacturing" normalize to the same root before comparison - same
+// technique used in the Modonix Filters project. Order matters: check the
+// more specific multi-letter suffixes (ches/shes/xes/ies/ing/ers) before
+// the generic single "s", or a word like "wrenches" would lose its "e"
+// and a word like "gloves" would strip the wrong two letters.
+function stemCategoryToken(t){
+  var s=String(t||'').toLowerCase();
+  if(/[cs]hes$|xes$|zes$|sses$/.test(s))return s.replace(/es$/,'');
+  if(/ies$/.test(s))return s.replace(/ies$/,'y');
+  if(/ing$/.test(s))return s.replace(/ing$/,'');
+  if(/ers$/.test(s))return s.replace(/ers$/,'');
+  if(/er$/.test(s))return s.replace(/er$/,'');
+  if(/s$/.test(s)&&!/ss$/.test(s))return s.replace(/s$/,'');
+  return s;
+}
+// Two numbers, not one: Jaccard alone let two mostly-different category
+// names match just by both containing common industry words like "saw" or
+// "blade" - two confirmed real cases (a Reciprocating blade matching an
+// unrelated Band Saw category, and "Fire & Rescue" matching "Friction")
+// happened this way. Containment - what fraction of the SHORTER name's
+// words actually appear in the other - is the real safeguard: a short
+// overlap in an otherwise long, different name scores low containment
+// even if raw Jaccard looks passable, while true near-duplicates (a
+// typo, a plural, reworded word order) score high on both measures.
 function categorySimilarity(aNorm,bNorm){
   if(!aNorm || !bNorm) return 0;
   if(aNorm===bNorm) return 1;
@@ -565,7 +587,9 @@ function categorySimilarity(aNorm,bNorm){
   var setA={}; at.forEach(function(t){setA[t]=1;});
   var inter=0; bt.forEach(function(t){if(setA[t])inter++;});
   var union = at.length + bt.length - inter;
-  return union ? inter/union : 0;
+  var jaccard = union ? inter/union : 0;
+  var containment = inter / Math.min(at.length, bt.length);
+  return (jaccard>=0.6 && containment>=0.8) ? Math.max(jaccard,containment) : Math.min(jaccard, 0.39);
 }
 function suggestCategoryName(raw){
   var s=(raw||'Uncategorized').toString().trim().replace(/\s+/g,' ');
@@ -821,6 +845,7 @@ function renderCategoryCard(item,idx){
       '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(savedBoxVal)+'</textarea>'+
       '<div class="catcard-btns">'+
         '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'confirm\')" '+(item.decision?'disabled':'')+'>Looks good</button>'+
+        '<button class="catcard-btn" onclick="rejectSavedMatch('+idx+')" '+(item.decision?'disabled':'')+' title="This item does not actually belong in this saved category">No, this isn\'t right</button>'+
       '</div>';
   } else {
     // 'new', or a 'possible' the user said was actually new. Round 25b:
@@ -872,6 +897,25 @@ async function generateCategoryPreview(idx){
 function convertPossibleToNew(idx){
   var item = activeCatReview.queue[idx];
   item.status = 'new';
+  item.suggestedName = suggestCategoryName(item.rawLabel);
+  renderCategoryReview();
+  generateCategoryPreview(idx);
+}
+// For a "Saved" card that's actually wrong: this item's raw text exactly
+// matched something already stored under that category (either the
+// category name itself or a previously-recorded raw-text variant) - if
+// that match is wrong, the stored variant is the actual cause and needs
+// removing, or the exact same wrong match will keep happening on every
+// future file too, not just this one row in this one session.
+function rejectSavedMatch(idx){
+  var item = activeCatReview.queue[idx];
+  var cat = categoryLibrary.categories[item.canonical];
+  if(cat && cat.rawLabels){
+    var i = cat.rawLabels.indexOf(item.norm);
+    if(i!==-1){ cat.rawLabels.splice(i,1); saveCategoryLibrary(); }
+  }
+  item.status = 'new';
+  item.canonical = null;
   item.suggestedName = suggestCategoryName(item.rawLabel);
   renderCategoryReview();
   generateCategoryPreview(idx);
