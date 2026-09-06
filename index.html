@@ -601,27 +601,28 @@ var CATEGORY_POSSIBLE_MATCH_THRESHOLD = 0.4;
 // Returns {status:'new'|'saved'|'possible', canonical, norm, rawLabel, bestGuess, score}
 function matchCategory(rawLabel){
   var norm = normalizeCategoryLabel(rawLabel);
-  if(!norm) return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel||'',bestGuess:null,score:0};
+  if(!norm) return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel||'',bestGuess:null,score:0,matchedRawLabel:null};
   var cats = categoryLibrary.categories;
   for(var name in cats){
     var c = cats[name];
     if((c.rawLabels||[]).indexOf(norm)!==-1 || normalizeCategoryLabel(name)===norm){
-      return {status:'saved',canonical:name,norm:norm,rawLabel:rawLabel,bestGuess:null,score:1};
+      return {status:'saved',canonical:name,norm:norm,rawLabel:rawLabel,bestGuess:null,score:1,matchedRawLabel:null};
     }
   }
-  var best=null, bestScore=0;
+  var best=null, bestScore=0, bestMatchedRawLabel=null;
   for(var name2 in cats){
     var s = categorySimilarity(norm, normalizeCategoryLabel(name2));
+    var matchedRL = null;
     (cats[name2].rawLabels||[]).forEach(function(rl){
       var s2 = categorySimilarity(norm, rl);
-      if(s2>s) s=s2;
+      if(s2>s){ s=s2; matchedRL=rl; }
     });
-    if(s>bestScore){bestScore=s; best=name2;}
+    if(s>bestScore){bestScore=s; best=name2; bestMatchedRawLabel=matchedRL;}
   }
   if(best && bestScore>=CATEGORY_POSSIBLE_MATCH_THRESHOLD){
-    return {status:'possible',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:best,score:bestScore};
+    return {status:'possible',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:best,score:bestScore,matchedRawLabel:bestMatchedRawLabel};
   }
-  return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:null,score:0};
+  return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel,bestGuess:null,score:0,matchedRawLabel:null};
 }
 function getRowCategoryRaw(row){
   var v = row['Product Type'] || row['product type'] || '';
@@ -894,8 +895,23 @@ async function generateCategoryPreview(idx){
   item.generating = false;
   renderCategoryReview();
 }
+// Same cleanup principle as rejectSavedMatch, adapted for the fuzzy
+// "possible match" path: a false Possible Match is usually caused by one
+// specific stored raw-text variant under that category (often saved
+// there before today's stricter matching existed), not the clean
+// category name itself. Removing that one specific variant (never the
+// whole category) is what actually stops the same false match from
+// coming back on the next file - just clicking "No, it's new" without
+// this would only fix the current session's card.
 function convertPossibleToNew(idx){
   var item = activeCatReview.queue[idx];
+  if(item.bestGuess && item.matchedRawLabel){
+    var cat = categoryLibrary.categories[item.bestGuess];
+    if(cat && cat.rawLabels){
+      var i = cat.rawLabels.indexOf(item.matchedRawLabel);
+      if(i!==-1){ cat.rawLabels.splice(i,1); saveCategoryLibrary(); }
+    }
+  }
   item.status = 'new';
   item.suggestedName = suggestCategoryName(item.rawLabel);
   renderCategoryReview();
