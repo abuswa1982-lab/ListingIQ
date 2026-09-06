@@ -440,6 +440,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <div id="catrev-list"></div>
     <div class="catov-foot">
       <button class="btn btn-navy" id="catrev-continue" onclick="continueCategoryReview()" disabled style="width:auto;padding:11px 22px;">Continue &amp; Generate</button>
+      <button class="btn-sm" onclick="addCategoryManually()">+ Add a category the scan missed</button>
       <button class="btn-sm" onclick="catrevApproveAllReady()">Approve All Ready</button>
       <button class="btn-sm" onclick="catrevDownloadXlsx()">Download for Review</button>
       <input type="file" id="catrev-upload-input" accept=".xlsx,.xls" style="display:none">
@@ -790,6 +791,7 @@ function decisionSummary(item){
   if(!item.decision) return '';
   if(item.decision.type==='merge') return 'Will use the "'+item.decision.canonicalName+'" pattern.';
   if(item.decision.type==='confirm') return 'Confirmed - keeping the saved pattern.';
+  if(item.decision.type==='reject') return 'Skipped - no category created. These items will generate without a specific category structure.';
   return 'Approved as "'+item.decision.canonicalName+'".';
 }
 function renderCategoryCard(item,idx){
@@ -843,6 +845,7 @@ function renderCategoryCard(item,idx){
       '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(boxContent)+'</textarea>'+
       '<div class="catcard-btns">'+
         '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'approve\')" '+(item.decision?'disabled':'')+'>Approve</button>'+
+        '<button class="catcard-btn" onclick="decideCategoryCard('+idx+',\'reject\')" '+(item.decision?'disabled':'')+' title="Don\'t create this category">Reject - don\'t create this</button>'+
       '</div>';
   }
   return '<div class="catcard'+(item.decision?' done':'')+'"><span class="catcard-badge '+badgeClass+'">'+badgeText+'</span>'+body+doneNote+'</div>';
@@ -888,6 +891,10 @@ function decideCategoryCard(idx,type){
     var title = titleBox?titleBox.value.trim():'';
     if(!title){ alert('Enter or wait for a title before approving.'); return; }
     item.decision = {type:'approve',canonicalName:name,title:title};
+  } else if(type==='reject'){
+    var sure = confirm('Skip this category? No category will be created - its items will still generate, just without a specific category structure to guide them. You can Undo this afterward if you change your mind.');
+    if(!sure) return;
+    item.decision = {type:'reject'};
   }
   renderCategoryReview();
 }
@@ -1126,11 +1133,12 @@ function closeCategoryManager(){
 function renderCategoryManager(){
   var list = document.getElementById('catmgr-list');
   var names = Object.keys(categoryLibrary.categories);
+  var addBtnRow = '<div style="margin-bottom:14px;"><button class="catcard-btn primary" onclick="addCategoryManually()">+ Add a category by hand</button></div>';
   if(!names.length){
-    list.innerHTML = '<div class="catov-sub" style="margin-bottom:0;">No categories saved yet - they\'ll show up here as you approve them while generating Product Names.</div>';
+    list.innerHTML = addBtnRow+'<div class="catov-sub" style="margin-bottom:0;">No categories saved yet - they\'ll show up here as you approve them while generating Product Names, or add one yourself above if the app never detected it from your file.</div>';
     return;
   }
-  list.innerHTML = names.map(function(name){
+  list.innerHTML = addBtnRow+names.map(function(name){
     var cat = categoryLibrary.categories[name];
     var variantCount = (cat.rawLabels||[]).length;
     return '<div class="catmgr-row"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in</div></div>'+
@@ -1156,6 +1164,40 @@ function editCategoryExamplePrompt(name){
   cat.exampleTitle = newTitle;
   saveCategoryLibrary();
   renderCategoryManager();
+}
+// Ahmed's ask: sometimes the file's category text is too messy, blank, or
+// oddly worded for the automatic scan to ever surface it as a "New" card
+// in the review popup at all - this lets a category be created directly,
+// by hand, without depending on the scan having found it first. The raw
+// label field matters most here: it's what teaches future scans to
+// recognize this exact text next time, rather than treating it as
+// unmatched again on every future upload.
+function addCategoryManually(){
+  var name = prompt('New category name (this is the canonical name that will be saved and reused):');
+  if(name===null) return;
+  name = name.trim();
+  if(!name){ alert('Category name can\'t be empty.'); return; }
+  if(categoryLibrary.categories[name]){
+    alert('A category named "'+name+'" already exists - use Edit on it instead.');
+    return;
+  }
+  var exampleTitle = prompt('Example title pattern for this category (this is what future items in this category will be modeled after):','');
+  if(exampleTitle===null) return;
+  exampleTitle = exampleTitle.trim();
+  if(!exampleTitle){ alert('An example title is needed so future items have a pattern to follow.'); return; }
+  var rawLabel = prompt('Optional: paste the exact category text as it appears in your file (e.g. in a "Product Type" or "Category" column). This teaches future uploads to recognize it automatically instead of treating it as unmatched again. Leave blank to skip.','');
+  var rawLabels = (rawLabel && rawLabel.trim()) ? [normalizeCategoryLabel(rawLabel)] : [];
+  categoryLibrary.categories[name] = {exampleTitle:exampleTitle, exampleItem:'', rawLabels:rawLabels};
+  saveCategoryLibrary();
+  // Refresh whichever screen is actually open - this can now be called
+  // from either the Category Manager or directly from the review popup
+  // (so a category the scan never surfaced can be added without leaving
+  // the review flow).
+  if(document.getElementById('catmgr-overlay').classList.contains('on')) renderCategoryManager();
+  if(document.getElementById('catrev-overlay').classList.contains('on')){
+    var sub = document.getElementById('catrev-sub');
+    if(sub) sub.textContent = 'Added "'+name+'". If any card below matches it, use Undo then re-decide it as a merge into your new category, or add the raw label directly to it via the Category Manager.';
+  }
 }
 function renameCategoryPrompt(name){
   var cat = categoryLibrary.categories[name];
@@ -2835,10 +2877,21 @@ function lookupCatalogItem(raw){
   if(!raw)return null;
   var key=String(raw).toUpperCase();
   if(itemIndex[key])return itemIndex[key];
+  // Safe fallback: ONLY a pack-size-suffix relationship counts (e.g. "42210-5"
+  // correctly matching base item "42210", or vice versa) - never an arbitrary
+  // "one starts with the other" guess. Plain numeric part numbers commonly
+  // share digit prefixes across completely unrelated product lines (a
+  // Reciprocating blade's number can start with the same digits as an
+  // unrelated Band Saw blade's number by pure coincidence) - a real,
+  // confirmed case of exactly this wrongly attached one item's whole
+  // family/category to a totally different, unrelated item. If no exact
+  // or pack-size match exists, return null and let the item show up for
+  // manual review rather than silently guessing wrong.
+  var base = baseItemKey(key);
+  if(itemIndex[base])return itemIndex[base];
   var keys=Object.keys(itemIndex);
   for(var i=0;i<keys.length;i++){
-    if(keys[i]===key)continue;
-    if(keys[i].indexOf(key)===0||key.indexOf(keys[i])===0)return itemIndex[keys[i]];
+    if(baseItemKey(keys[i])===base)return itemIndex[keys[i]];
   }
   return null;
 }
