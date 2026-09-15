@@ -165,6 +165,11 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 .catmgr-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;background:var(--s2);}
 .catmgr-name{font-size:13px;font-weight:bold;color:var(--navy);}
 .catmgr-meta{font-size:11px;color:var(--faint);font-family:monospace;margin-top:2px;}
+.catmgr-group{border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;background:#fff;}
+.catmgr-group summary{cursor:pointer;list-style:none;display:flex;align-items:center;flex-wrap:wrap;gap:4px;}
+.catmgr-group summary::-webkit-details-marker{display:none;}
+.catmgr-group summary::before{content:'\25b8';margin-right:8px;color:var(--faint);}
+.catmgr-group[open] summary::before{content:'\25be';}
 @media(max-width:640px){.two-col{grid-template-columns:1fr;}.tab-nav button{font-size:11px;padding:10px 4px;}.tab-nav button .tn{display:none;}.api-inp{width:120px;}header{padding:0 1rem;}.consol-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -525,12 +530,15 @@ function loadCategoryLibrary(){
     var raw = localStorage.getItem(CATEGORY_LIB_KEY);
     if(raw){
       var parsed = JSON.parse(raw);
-      if(parsed && parsed.categories) return parsed;
+      if(parsed && parsed.categories){
+        if(!Array.isArray(parsed.mainCategories)) parsed.mainCategories = [];
+        return parsed;
+      }
     }
   }catch(e){
     console.warn('[ListingIQ] failed to load saved category rules from this browser - starting with an empty library.', e);
   }
-  return {categories:{}};
+  return {categories:{}, mainCategories:[]};
 }
 function saveCategoryLibrary(){
   try{
@@ -599,9 +607,35 @@ function suggestCategoryName(raw){
 var CATEGORY_POSSIBLE_MATCH_THRESHOLD = 0.4;
 // Matches one row's raw category text against the saved library.
 // Returns {status:'new'|'saved'|'possible', canonical, norm, rawLabel, bestGuess, score}
+// Hard guardrail: never suggest a possible match across two different
+// top-level saw types, no matter how similar the rest of the wording
+// looks. This is what a word-count similarity score can never reliably
+// know on its own - "Reciprocating Saw Blades - Fire & Rescue" and
+// "Friction Band Saw Blade" can share real words, but Reciprocating and
+// Band Saw are simply different tools; every confirmed real mistake
+// found in this catalog's saved data was exactly this pattern. If either
+// side doesn't clearly state a type, this can't be sure either way, so
+// it does not block (never over-restrict on missing information - same
+// principle used everywhere else in this project).
+var SAW_TYPE_PATTERNS = [
+  ['reciprocating', /\breciprocating\b/],
+  ['band saw', /\bband\s*saws?\b/],
+  ['jig saw', /\bjig\s*saws?\b/],
+  ['air saw', /\bair\s*saws?\b|\bpneu-?saw\b/],
+  ['hacksaw', /\bhack\s*saws?\b/],
+  ['hole saw', /\bhole\s*saws?\b/],
+  ['circular saw', /\bcircular\s*saws?\b/]
+];
+function detectSawType(norm){
+  for(var i=0;i<SAW_TYPE_PATTERNS.length;i++){
+    if(SAW_TYPE_PATTERNS[i][1].test(norm)) return SAW_TYPE_PATTERNS[i][0];
+  }
+  return null;
+}
 function matchCategory(rawLabel){
   var norm = normalizeCategoryLabel(rawLabel);
   if(!norm) return {status:'new',canonical:null,norm:norm,rawLabel:rawLabel||'',bestGuess:null,score:0,matchedRawLabel:null};
+  var myType = detectSawType(norm);
   var cats = categoryLibrary.categories;
   for(var name in cats){
     var c = cats[name];
@@ -611,9 +645,12 @@ function matchCategory(rawLabel){
   }
   var best=null, bestScore=0, bestMatchedRawLabel=null;
   for(var name2 in cats){
-    var s = categorySimilarity(norm, normalizeCategoryLabel(name2));
+    var nameType = detectSawType(normalizeCategoryLabel(name2));
+    var s = (myType && nameType && myType!==nameType) ? 0 : categorySimilarity(norm, normalizeCategoryLabel(name2));
     var matchedRL = null;
     (cats[name2].rawLabels||[]).forEach(function(rl){
+      var rlType = detectSawType(rl);
+      if(myType && rlType && myType!==rlType) return;
       var s2 = categorySimilarity(norm, rl);
       if(s2>s){ s=s2; matchedRL=rl; }
     });
@@ -1193,22 +1230,110 @@ function closeCategoryManager(){
 function renderCategoryManager(){
   var list = document.getElementById('catmgr-list');
   var names = Object.keys(categoryLibrary.categories);
-  var addBtnRow = '<div style="margin-bottom:14px;"><button class="catcard-btn primary" onclick="addCategoryManually()">+ Add a category by hand</button></div>';
+  var mainCats = categoryLibrary.mainCategories || [];
+  var topRow = '<div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;">'+
+    '<button class="catcard-btn primary" onclick="addCategoryManually()">+ Add a category by hand</button>'+
+    '<button class="catcard-btn primary" onclick="addMainCategoryManually()">+ Add a main category</button>'+
+    '<button class="catcard-btn" onclick="assignCheckedToMainCategory()">Assign checked to a main category...</button>'+
+    '</div>';
   if(!names.length){
-    list.innerHTML = addBtnRow+'<div class="catov-sub" style="margin-bottom:0;">No categories saved yet - they\'ll show up here as you approve them while generating Product Names, or add one yourself above if the app never detected it from your file.</div>';
+    list.innerHTML = topRow+'<div class="catov-sub" style="margin-bottom:0;">No categories saved yet - they\'ll show up here as you approve them while generating Product Names, or add one yourself above if the app never detected it from your file.</div>';
     return;
   }
-  list.innerHTML = addBtnRow+names.map(function(name){
+
+  function renderOneCategory(name){
     var cat = categoryLibrary.categories[name];
     var variantCount = (cat.rawLabels||[]).length;
-    return '<div class="catmgr-row"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in</div></div>'+
+    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in</div></div>'+
       '<div class="catcard-btns" style="margin-top:0;">'+
         '<button class="catcard-btn" onclick="editCategoryExamplePrompt(\''+escJs(name)+'\')">Edit</button>'+
         '<button class="catcard-btn" onclick="renameCategoryPrompt(\''+escJs(name)+'\')">Rename</button>'+
         '<button class="catcard-btn" onclick="mergeCategoryPrompt(\''+escJs(name)+'\')">Merge into...</button>'+
         '<button class="catcard-btn" onclick="deleteCategoryPrompt(\''+escJs(name)+'\')">Delete</button>'+
-      '</div></div>';
+      '</div></div></div>';
+  }
+
+  var grouped = {};
+  var ungrouped = [];
+  names.forEach(function(name){
+    var mc = categoryLibrary.categories[name].mainCategory;
+    if(mc && mainCats.indexOf(mc)!==-1){
+      if(!grouped[mc]) grouped[mc]=[];
+      grouped[mc].push(name);
+    } else {
+      ungrouped.push(name);
+    }
+  });
+
+  var html = mainCats.map(function(mc){
+    var items = grouped[mc]||[];
+    return '<details class="catmgr-group" open><summary><b>'+esc(mc)+'</b> <span class="catmgr-meta">('+items.length+' categor'+(items.length===1?'y':'ies')+')</span>'+
+      '<span class="catcard-btns" style="display:inline-flex;margin-left:12px;" onclick="event.stopPropagation()">'+
+        '<button class="catcard-btn" onclick="exportCategoryRules(\''+escJs(mc)+'\')">Export this group</button>'+
+        '<button class="catcard-btn" onclick="renameMainCategoryPrompt(\''+escJs(mc)+'\')">Rename group</button>'+
+        '<button class="catcard-btn" onclick="deleteMainCategoryPrompt(\''+escJs(mc)+'\')">Delete group (keeps categories)</button>'+
+      '</span></summary>'+
+      '<div style="padding:10px 0 0 20px;">'+(items.length?items.map(renderOneCategory).join(''):'<div class="catmgr-meta">Nothing assigned to this group yet - check some categories below and use "Assign checked to a main category".</div>')+'</div>'+
+    '</details>';
   }).join('');
+
+  html += '<details class="catmgr-group" open><summary><b>Ungrouped</b> <span class="catmgr-meta">('+ungrouped.length+' categor'+(ungrouped.length===1?'y':'ies')+')</span></summary>'+
+    '<div style="padding:10px 0 0 20px;">'+(ungrouped.length?ungrouped.map(renderOneCategory).join(''):'<div class="catmgr-meta">Everything is assigned to a main category.</div>')+'</div>'+
+  '</details>';
+
+  list.innerHTML = topRow + html;
+}
+// Ahmed's ask: 27+ flat categories gets unwieldy fast. A main category is
+// just a label to group under - it holds no data of its own beyond a
+// name; deleting one only ungroups its categories, never deletes them.
+function addMainCategoryManually(){
+  var name = prompt('New main category name (e.g. "Band Saw Blades") - this is just a grouping label, the individual categories underneath keep their own attributes and titles:');
+  if(name===null) return;
+  name = name.trim();
+  if(!name){ alert('Main category name can\'t be empty.'); return; }
+  if(!categoryLibrary.mainCategories) categoryLibrary.mainCategories = [];
+  if(categoryLibrary.mainCategories.indexOf(name)!==-1){ alert('A main category named "'+name+'" already exists.'); return; }
+  categoryLibrary.mainCategories.push(name);
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function renameMainCategoryPrompt(oldName){
+  var newName = prompt('Rename main category "'+oldName+'" to:', oldName);
+  if(newName===null) return;
+  newName = newName.trim();
+  if(!newName || newName===oldName) return;
+  if(categoryLibrary.mainCategories.indexOf(newName)!==-1){ alert('A main category named "'+newName+'" already exists.'); return; }
+  categoryLibrary.mainCategories = categoryLibrary.mainCategories.map(function(m){return m===oldName?newName:m;});
+  Object.keys(categoryLibrary.categories).forEach(function(name){
+    if(categoryLibrary.categories[name].mainCategory===oldName) categoryLibrary.categories[name].mainCategory = newName;
+  });
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function deleteMainCategoryPrompt(name){
+  if(!confirm('Delete the main category "'+name+'"? The categories inside it are NOT deleted - they just become Ungrouped again.')) return;
+  categoryLibrary.mainCategories = categoryLibrary.mainCategories.filter(function(m){return m!==name;});
+  Object.keys(categoryLibrary.categories).forEach(function(cn){
+    if(categoryLibrary.categories[cn].mainCategory===name) delete categoryLibrary.categories[cn].mainCategory;
+  });
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function assignCheckedToMainCategory(){
+  var checked = Array.prototype.slice.call(document.querySelectorAll('.catmgr-check:checked')).map(function(el){return el.value;});
+  if(!checked.length){ alert('Check at least one category first.'); return; }
+  var mainCats = categoryLibrary.mainCategories||[];
+  var promptMsg = 'Assign '+checked.length+' checked categor'+(checked.length===1?'y':'ies')+' to which main category?'+(mainCats.length?'\n\nExisting: '+mainCats.join(', '):'')+'\n\n(Type an existing name above, or a new name to create it)';
+  var target = prompt(promptMsg, mainCats[0]||'');
+  if(target===null) return;
+  target = target.trim();
+  if(!target){ alert('Main category name can\'t be empty.'); return; }
+  if(mainCats.indexOf(target)===-1){ categoryLibrary.mainCategories.push(target); }
+  checked.forEach(function(name){
+    if(categoryLibrary.categories[name]) categoryLibrary.categories[name].mainCategory = target;
+  });
+  saveCategoryLibrary();
+  renderCategoryManager();
 }
 // Round 25b: Ahmed's ask - a saved category's stored example can go stale
 // (e.g. approved with a wrong brand baked in) and there was previously no
@@ -1299,8 +1424,23 @@ function deleteCategoryPrompt(name){
   saveCategoryLibrary();
   renderCategoryManager();
 }
-function exportCategoryRules(){
-  dl(new Blob([JSON.stringify(categoryLibrary,null,2)],{type:'application/json'}),'listingiq-category-rules.json');
+// Full export when called with no argument (unchanged behavior for the
+// existing "Export (backup)" button). When called with a main category
+// name (from a group's "Export this group" button), only that group's
+// categories are included, marked with scopedMainCategory so Import
+// knows to replace just that slice instead of the whole library.
+function exportCategoryRules(mainCategoryName){
+  if(!mainCategoryName){
+    dl(new Blob([JSON.stringify(categoryLibrary,null,2)],{type:'application/json'}),'listingiq-category-rules.json');
+    return;
+  }
+  var scopedCategories = {};
+  Object.keys(categoryLibrary.categories).forEach(function(name){
+    if(categoryLibrary.categories[name].mainCategory===mainCategoryName) scopedCategories[name]=categoryLibrary.categories[name];
+  });
+  var payload = {scopedMainCategory:mainCategoryName, categories:scopedCategories};
+  var safeName = mainCategoryName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  dl(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),'listingiq-category-rules-'+safeName+'.json');
 }
 function importCategoryRules(file){
   if(!file) return;
@@ -1310,11 +1450,42 @@ function importCategoryRules(file){
       var parsed = JSON.parse(e.target.result);
       if(!parsed || typeof parsed.categories !== 'object') throw new Error('This file doesn\'t look like a category rules export.');
       var incoming = Object.keys(parsed.categories).length;
-      if(!confirm('Import '+incoming+' categor'+(incoming===1?'y':'ies')+' from this file? Matching names will be overwritten with the imported version.')) return;
+
+      if(parsed.scopedMainCategory){
+        // Scoped import: replace ONLY the categories currently assigned to
+        // this one main category, leave every other category and every
+        // other group in the library completely untouched.
+        var mc = parsed.scopedMainCategory;
+        var currentInGroup = Object.keys(categoryLibrary.categories).filter(function(n){return categoryLibrary.categories[n].mainCategory===mc;});
+        if(!confirm('Replace the "'+mc+'" group (currently '+currentInGroup.length+' categor'+(currentInGroup.length===1?'y':'ies')+') with the '+incoming+' categor'+(incoming===1?'y':'ies')+' in this file? Every other category and group is left untouched.')) return;
+        currentInGroup.forEach(function(n){ delete categoryLibrary.categories[n]; });
+        Object.keys(parsed.categories).forEach(function(name){
+          categoryLibrary.categories[name] = parsed.categories[name];
+          categoryLibrary.categories[name].mainCategory = mc;
+        });
+        if(!categoryLibrary.mainCategories) categoryLibrary.mainCategories=[];
+        if(categoryLibrary.mainCategories.indexOf(mc)===-1) categoryLibrary.mainCategories.push(mc);
+        saveCategoryLibrary();
+        renderCategoryManager();
+        alert('Replaced the "'+mc+'" group with '+incoming+' categor'+(incoming===1?'y':'ies')+' from this file.');
+        return;
+      }
+
+      var currentCount = Object.keys(categoryLibrary.categories).length;
+      // A true replace, not a merge: importing a backup should restore
+      // your library to exactly match the file, including removing
+      // anything currently saved that isn't in it (e.g. a mistaken
+      // duplicate category deleted from a cleaned-up export). A merge
+      // that only ever adds/overwrites can never actually remove
+      // anything - confirmed as the real cause of a cleaned export not
+      // sticking after import.
+      if(!confirm('Replace your ENTIRE saved category library with the '+incoming+' categor'+(incoming===1?'y':'ies')+' in this file? Your current '+currentCount+' categor'+(currentCount===1?'y':'ies')+' will be removed first, then replaced with exactly what is in this file. This cannot be undone except by importing another backup.')) return;
+      categoryLibrary.categories = {};
+      categoryLibrary.mainCategories = Array.isArray(parsed.mainCategories) ? parsed.mainCategories : [];
       Object.keys(parsed.categories).forEach(function(name){ categoryLibrary.categories[name] = parsed.categories[name]; });
       saveCategoryLibrary();
       renderCategoryManager();
-      alert('Imported '+incoming+' categor'+(incoming===1?'y':'ies')+'.');
+      alert('Replaced your library with '+incoming+' categor'+(incoming===1?'y':'ies')+' from this file.');
     }catch(err){
       alert('Could not import this file: '+(err&&err.message?err.message:err));
     }
@@ -1863,12 +2034,23 @@ async function apiCall(prompt,maxTok,timeoutMs){
 // configuration problem surfaces immediately rather than after a minute of
 // pointless waiting.
 var NON_RETRYABLE_STATUS={400:1,401:1,403:1,404:1};
-async function apiCallRetry(prompt, maxTok, maxAttempts){
+// Round 27b: the stop button only ever got checked BETWEEN pages/rows in
+// each tab's own loop, never between an individual API call's own retry
+// attempts. Once one page or row started retrying, it ran through its
+// entire retry sequence with no way to interrupt early - Stop looked like
+// it did nothing until that whole sequence finished on its own, which
+// got noticeably worse once extraction's own per-attempt timeout was
+// raised to 240s (round 27) since a stuck page's retry sequence can now
+// legitimately take several minutes on its own. stopCheckFn is optional -
+// only the callers that actually have a Stop button to check pass one;
+// everything else keeps working exactly as before.
+async function apiCallRetry(prompt, maxTok, maxAttempts, timeoutMs, stopCheckFn){
   var lastErr=null;
   var MAX_ATTEMPTS=maxAttempts||5;
   for(var attempt=0;attempt<MAX_ATTEMPTS;attempt++){
+    if(stopCheckFn&&stopCheckFn())throw new Error('Stopped by user.');
     try {
-      var result=await apiCall(prompt,maxTok);
+      var result=await apiCall(prompt,maxTok,timeoutMs);
       if(result&&result.trim()!=='')return result;
       var diag=lastEmptyResponseDiag?(' [diagnostic: stop_reason='+lastEmptyResponseDiag.stopReason+', response id='+lastEmptyResponseDiag.id+', content block types='+JSON.stringify(lastEmptyResponseDiag.contentBlockTypes)+'] - see browser console for the full raw response.'):'';
       lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.'+diag);
@@ -2068,7 +2250,7 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
       var p=buildTitlePrompt(CH[chs[ci]],b,pn,rows[i],catExample);
       // Round 22 raised this 300->2000; round 23 raised it again to 4000 -
       // see the note below on the single-channel call.
-      var raw=await apiCallRetry(p,4000);
+      var raw=await apiCallRetry(p,4000,5,90000,function(){return stops.t1;});
       entry.titles[chs[ci]]=enforceLimit(raw,CH[chs[ci]].max);
     }
     results.t1.push(entry);
@@ -2116,7 +2298,7 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
     // than keep guessing at ever-larger fixed numbers, a stubborn row now
     // gets skipped and tracked (see runTab1()'s catch block) instead of
     // blocking the rest of the run.
-    var raw2=await apiCallRetry(p2,4000);
+    var raw2=await apiCallRetry(p2,4000,5,90000,function(){return stops.t1;});
     var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
     results.t1.push(entry2);
     if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
@@ -2289,7 +2471,7 @@ async function runTab2(isResume){
         results.t2.push({partNumber:pn,html:cached2.html,row:row,reusedFrom:cached2.partNumber});
       } else {
         var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
-        var rhtml=await apiCallRetry(prompt,600);
+        var rhtml=await apiCallRetry(prompt,600,5,90000,function(){return stops.t2;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry2={partNumber:pn,html:rhtml,row:row};
         results.t2.push(entry2);
@@ -2380,7 +2562,7 @@ async function runTab3(isResume){
           if(!rawDesc)rawDesc=row['Key Specs']||row['key specs']||row['specs']||JSON.stringify(row);
           prompt='You are an HTML formatter for product listings.\n\nYour ONLY job is to convert the raw description text below into clean HTML.\n\nSTRICT RULES:\n- Preserve EVERY word exactly as written. Do not add, remove, reword, summarize, or rephrase anything.\n- Do not make assumptions. Do not improve the copy. Do not remove marketing language.\n- Convert the existing structure to HTML only:\n  * Paragraphs become <p> tags\n  * Bullet lists become <ul><li> items\n  * Section headers like Features: or Instructions: become <p><strong>Header:</strong></p>\n  * Bold or emphasized words use <strong> tags\n- Output valid HTML only. No preamble, no explanation, no markdown, no extra tags outside the content.\n- The words in your output must be identical to the words in the input.\n\nRAW DESCRIPTION:\n'+rawDesc+'\n\nReturn the HTML-formatted version of this text with zero content changes.';
         }
-        var rhtml=await apiCallRetry(prompt,800);
+        var rhtml=await apiCallRetry(prompt,800,5,90000,function(){return stops.t3;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry3={partNumber:pn,html:rhtml,row:row};
         results.t3.push(entry3);
@@ -2447,7 +2629,7 @@ async function runTab4(isResume){
         results.t4.push({partNumber:pn,html:cached4.html,row:row,reusedFrom:cached4.partNumber});
       } else {
         var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Do NOT include a "Part Number" or "Brand" row - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
-        var rhtml=await apiCallRetry(prompt,800);
+        var rhtml=await apiCallRetry(prompt,800,5,90000,function(){return stops.t4;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry4={partNumber:pn,html:rhtml,row:row};
         results.t4.push(entry4);
@@ -3071,7 +3253,18 @@ async function extractChunkPages(chunkPages, opts){
     // was reported (the same 3 pages, every time, even after retrying
     // "a couple times"). Raising the ceiling costs nothing extra unless a
     // page actually needs it - max_tokens is a budget cap, not a floor.
-    var resp=await apiCallRetry(buildExtractPrompt(chunkText),16000,opts.isSplitAttempt?3:5);
+    // Round 27: apiCallRetry never had a way to ask for more than the
+    // fixed 90s-per-attempt default, even though the token budget above
+    // was already raised specifically for this catalog's densest pages
+    // (round 26). Generating a genuinely large structured response - 60+
+    // items, each with technical_specs/features/applications - can
+    // legitimately take longer than 90 seconds to finish even when
+    // nothing is wrong, so the timeout itself (not the token ceiling) was
+    // the real remaining bottleneck for a page like this one. 240s gives
+    // real room for that without changing the timeout anywhere else -
+    // every other apiCallRetry call in this file keeps the exact same 90s
+    // default, since none of them generate anywhere near this much output.
+    var resp=await apiCallRetry(buildExtractPrompt(chunkText),16000,opts.isSplitAttempt?3:5,240000,function(){return stops.mg1;});
     var parseResult=parseJsonLoose(resp);
     var parsed=parseResult.items;
     var pushedThisAttempt=[];
@@ -3499,7 +3692,7 @@ async function buildMasterRecords(isResume){
       if(!hasExcel&&!hasPdf){
         masterRecords[it.baseKey]={technical_specs:{},features:[],applications:[],sources:'None'};
       } else {
-        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000);
+        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000,5,90000,function(){return stops.mg3;});
         var parsed=parseJsonObjectLoose(resp);
         var rec={technical_specs:{},features:[],applications:[]};
         if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
@@ -3586,7 +3779,7 @@ async function retryFailedMasterRecords(){
       if(!hasExcel&&!hasPdf){
         masterRecords[it.baseKey]={technical_specs:{},features:[],applications:[],sources:'None'};
       } else {
-        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000);
+        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000,5,90000,function(){return stops.mg3;});
         var parsed=parseJsonObjectLoose(resp);
         var rec={technical_specs:{},features:[],applications:[]};
         if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
