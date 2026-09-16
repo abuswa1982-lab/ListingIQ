@@ -1395,6 +1395,23 @@ function renameCategoryPrompt(name){
     alert('A category named "'+newName+'" already exists - use "Merge into..." instead if you want to combine them.');
     return;
   }
+  // Renaming only the key while leaving the stored example title text
+  // untouched was confirmed as a real bug: future titles are modeled on
+  // that SAVED EXAMPLE TEXT, not the category's display name, so a
+  // rename alone (e.g. dropping "Blue Diamond" in favor of "Bi-Metal
+  // Matrix Steel") silently kept producing the old wording forever,
+  // since the example still said it verbatim even after the name
+  // changed. If the old name appears in the example, offer to update it
+  // to match right here, so the two can't drift apart from each other.
+  if(cat.exampleTitle && name && cat.exampleTitle.toLowerCase().indexOf(name.toLowerCase())!==-1){
+    var suggested = cat.exampleTitle.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),newName);
+    var updatedExample = prompt('The saved example title still contains the old name "'+name+'" - future titles are modeled on this exact text, so it needs updating too or the old wording will keep coming back. Review/edit the corrected version below, or clear it to leave the example unchanged:',suggested);
+    if(updatedExample!==null && updatedExample.trim()){
+      cat.exampleTitle = updatedExample.trim();
+    }
+  } else if(cat.exampleTitle){
+    alert('Note: the saved example title was not updated automatically (the old name "'+name+'" doesn\'t appear in it verbatim). If the example still uses old wording, click "Edit" on this category afterward to fix it directly - future titles are modeled on that example text, not on the category name alone.');
+  }
   categoryLibrary.categories[newName] = cat;
   delete categoryLibrary.categories[name];
   saveCategoryLibrary();
