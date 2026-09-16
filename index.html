@@ -3221,9 +3221,14 @@ function tickExtractLabel(baseText){
 }
 async function extractChunkPages(chunkPages, opts){
   opts=opts||{};
-  var chunkText='';
-  chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+(lastPageTexts[pn]||'');});
-  var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
+  var chunkText;
+  if(opts.overrideText!=null){
+    chunkText=opts.overrideText;
+  } else {
+    chunkText='';
+    chunkPages.forEach(function(pn){chunkText+='\n--- PAGE '+pn+' ---\n'+(lastPageTexts[pn]||'');});
+  }
+  var rangeLabel=opts.overrideLabel||(chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]));
   var labelBase=opts.isSplitAttempt?('Page '+rangeLabel+' (combined request failed - retrying alone)'):('Pages '+rangeLabel);
   var ticker=tickExtractLabel(labelBase);
   try{
@@ -3411,6 +3416,29 @@ async function extractCatalog(){
     // does that group sometimes need to split itself apart" behavior more
     // confusing than useful.
     var CHUNK=1;
+    // Round 28: page 28 confirmed to have 144 distinct items (not the 62
+    // estimated in round 26) - more than double what even the raised
+    // 16000-token/240s budget can reliably finish in one request. Manually
+    // clicking Retry re-sends the exact same full-page request from
+    // scratch every time, with no memory of what was extracted last time -
+    // that's why repeated retries returned different, inconsistent partial
+    // counts (56, then 67) instead of steady progress toward completion.
+    // The real fix: split an unusually large page's OWN TEXT into smaller
+    // row-range pieces before ever attempting it, so each piece needs to
+    // generate far less OUTPUT, rather than gambling one giant request
+    // against the budget and hoping enough survives a cutoff.
+    // Counting distinct item-number-shaped tokens (Sterling's own 5-digit
+    // part number convention, confirmed consistent across every page
+    // checked today) is a much more direct proxy for how much OUTPUT a
+    // page will need than raw input character count - a page can be short
+    // in characters (a dense multi-column table like this one) while still
+    // needing to generate a huge number of separate output records, which
+    // is the actual thing that runs out of budget, not the input size.
+    var SUBSPLIT_ITEM_THRESHOLD=50;
+    function countLikelyItemNumbers(text){
+      var matches=text.match(/\b\d{4,6}\b/g)||[];
+      return new Set(matches).size;
+    }
     for(var c=0;c<pagesToRead.length;c+=CHUNK){
       if(stops.mg1){
         setMsg('mg1-msg','Stopped. '+catalogEntries.length+' entries extracted so far - you can merge with what was found, or run again to redo from the start.','warn');
@@ -3419,9 +3447,28 @@ async function extractCatalog(){
       var chunkPages=pagesToRead.slice(c,c+CHUNK);
       var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
       setProg('mg1',40+Math.round((c/pagesToRead.length)*55),'Extracting pages '+rangeLabel+' ('+Math.min(c+CHUNK,pagesToRead.length)+' of '+pagesToRead.length+' selected)');
-      document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+' / '+pagesToRead.length+' selected';
-      await extractChunkPages(chunkPages);
-      renderCatalogPreview();
+      var soloPageText=chunkPages.length===1?(lastPageTexts[chunkPages[0]]||''):null;
+      var likelyItemCount=soloPageText!==null?countLikelyItemNumbers(soloPageText):0;
+      if(soloPageText!==null && likelyItemCount>SUBSPLIT_ITEM_THRESHOLD){
+        var pNumForSplit=chunkPages[0];
+        var textLines=soloPageText.split('\n');
+        var pieceCount=Math.min(6,Math.ceil(likelyItemCount/SUBSPLIT_ITEM_THRESHOLD));
+        var linesPerPiece=Math.ceil(textLines.length/pieceCount);
+        for(var pieceIdx=0;pieceIdx<pieceCount;pieceIdx++){
+          if(stops.mg1)break;
+          var pieceLines=textLines.slice(pieceIdx*linesPerPiece,(pieceIdx+1)*linesPerPiece);
+          if(!pieceLines.length)continue;
+          var pieceLabel='Page '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+' - split, this page is unusually dense: ~'+likelyItemCount+' items)';
+          document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>'+pieceLabel;
+          await extractChunkPages([pNumForSplit],{overrideText:'\n--- PAGE '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+') ---\n'+pieceLines.join('\n'),overrideLabel:pieceLabel});
+          renderCatalogPreview();
+          if(pieceIdx+1<pieceCount&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
+        }
+      } else {
+        document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+' / '+pagesToRead.length+' selected';
+        await extractChunkPages(chunkPages);
+        renderCatalogPreview();
+      }
       // Small pacing gap between chunk calls (not after the last one) - gives
       // the API a breath between back-to-back requests instead of firing them
       // as fast as each response returns, which helps avoid tripping
