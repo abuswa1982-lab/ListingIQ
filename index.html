@@ -3219,6 +3219,26 @@ function tickExtractLabel(baseText){
     el.innerHTML='<span class="spinner"></span>'+baseText+' - '+secs+'s elapsed';
   },1000);
 }
+// Page 28 (Hole Saws) has three side-by-side item-number columns whose
+// collection names ("Bi-Metal / Varied Pitch", "Carbide Tipped /
+// Imported", "Blue Diamond") the model has to tell apart purely from
+// reconstructed multi-column text - confirmed to fail completely for
+// this page: every item, regardless of which real column it came from,
+// came back labeled "Blue Diamond" (whichever collection name it read
+// first). Sterling's own item-number ranges make the real answer 100%
+// certain and checkable, so this corrects the guess using that fact
+// directly. Scoped specifically to the three ranges confirmed on this
+// one page of this one catalog - not a general mechanism, and would need
+// re-checking if applied to a different catalog with different numbering.
+function correctPage28ColumnMisassignment(itemNo,family){
+  if(!itemNo)return family;
+  var n=parseInt(itemNo,10);
+  if(isNaN(n))return family;
+  if(n>=55000&&n<=55999)return'Bi-Metal Varied Pitch Hole Saw';
+  if(n>=56000&&n<=56999)return'Carbide Tipped Imported Hole Saw';
+  if(n>=54000&&n<=54999)return'Blue Diamond Hole Saw';
+  return family;
+}
 async function extractChunkPages(chunkPages, opts){
   opts=opts||{};
   var chunkText;
@@ -3278,6 +3298,7 @@ async function extractChunkPages(chunkPages, opts){
         if(!e||typeof e!=='object')return;
         var itemNo=e.item_no?String(e.item_no).trim():null;
         var family=e.family?String(e.family).trim():'';
+        family=correctPage28ColumnMisassignment(itemNo,family);
         if(!family&&!itemNo)return;
         var technicalSpecs={};
         if(e.technical_specs&&typeof e.technical_specs==='object'&&!Array.isArray(e.technical_specs)){
@@ -3452,12 +3473,30 @@ async function extractCatalog(){
       if(soloPageText!==null && likelyItemCount>SUBSPLIT_ITEM_THRESHOLD){
         var pNumForSplit=chunkPages[0];
         var textLines=soloPageText.split('\n');
+        // The collection/table names and column headers on a page like
+        // this one only appear once, near the top - confirmed the actual
+        // cause of item 55041 coming back "Unclassified": it fell into a
+        // later row-range piece that no longer contained the "Bi-Metal /
+        // Varied Pitch" header text at all, so that piece had no way to
+        // know which collection its own rows belonged to. Fix: detect
+        // where the header ends (the first line that actually looks like
+        // a data row - i.e. contains an item-number-shaped token) and
+        // prepend everything before that point to EVERY piece, not just
+        // whichever piece happens to start at line 1. Generic by
+        // detection, not hardcoded to this page's specific line count.
+        var firstDataLineIdx=textLines.length;
+        for(var li=0;li<textLines.length;li++){
+          if(/\b\d{4,6}\b/.test(textLines[li])){ firstDataLineIdx=li; break; }
+        }
+        var headerLines=textLines.slice(0,firstDataLineIdx);
+        var dataLines=textLines.slice(firstDataLineIdx);
         var pieceCount=Math.min(6,Math.ceil(likelyItemCount/SUBSPLIT_ITEM_THRESHOLD));
-        var linesPerPiece=Math.ceil(textLines.length/pieceCount);
+        var linesPerPiece=Math.ceil(dataLines.length/pieceCount);
         for(var pieceIdx=0;pieceIdx<pieceCount;pieceIdx++){
           if(stops.mg1)break;
-          var pieceLines=textLines.slice(pieceIdx*linesPerPiece,(pieceIdx+1)*linesPerPiece);
-          if(!pieceLines.length)continue;
+          var pieceDataLines=dataLines.slice(pieceIdx*linesPerPiece,(pieceIdx+1)*linesPerPiece);
+          if(!pieceDataLines.length)continue;
+          var pieceLines=headerLines.concat(pieceDataLines);
           var pieceLabel='Page '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+' - split, this page is unusually dense: ~'+likelyItemCount+' items)';
           document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>'+pieceLabel;
           await extractChunkPages([pNumForSplit],{overrideText:'\n--- PAGE '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+') ---\n'+pieceLines.join('\n'),overrideLabel:pieceLabel});
