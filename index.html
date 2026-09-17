@@ -3024,8 +3024,22 @@ function layoutPageText(textContent){
   }).join('\n');
 }
 function buildExtractPrompt(chunkText){
-  var knownNames = Object.keys(categoryLibrary.categories||{});
-  var knownBlock = knownNames.length ? '\n\nKNOWN CATEGORIES (already reviewed and approved by the person using this tool - '+knownNames.length+' total):\n'+knownNames.map(function(n){return '- '+n;}).join('\n')+'\n\nFor the "family" field specifically: if an item genuinely belongs to one of the categories listed above, use that EXACT name, character for character - do not invent alternate wording, a rephrasing, or a near-duplicate for something that already exists here (e.g. if "Carbide Tipped Hole Saw" is listed above, never write "Carbide-Tipped Hole Saw", "Hole Saws - Carbide Tipped", or similar variants - use the exact listed text). Only write new family text if this item genuinely does not match any category in this list.\n' : '';
+  var cats = categoryLibrary.categories||{};
+  var knownNames = Object.keys(cats);
+  // Round 29: listing only category NAMES was not enough - the model has
+  // no way to connect literal printed text (e.g. "Blue Diamond") to a
+  // renamed category ("Bi-Metal Matrix Steel Hole Saw") unless it's shown
+  // that mapping directly. Every time a category gets approved or
+  // corrected through the review screen, the raw text it was corrected
+  // FROM gets recorded in that category's own rawLabels - so showing
+  // those here is what actually lets a person's correction stick for
+  // every future item with the same raw text, not just the one row they
+  // corrected. Still fully general: this reflects whatever's actually
+  // been approved, nothing hardcoded to any specific catalog or page.
+  var knownBlock = knownNames.length ? '\n\nKNOWN CATEGORIES (already reviewed and approved by the person using this tool - '+knownNames.length+' total). Each one lists the category NAME to use, plus raw text variants already confirmed to mean that same category:\n'+knownNames.map(function(n){
+    var variants=(cats[n].rawLabels||[]);
+    return '- "'+n+'"'+(variants.length?' (also matches raw text like: '+variants.map(function(v){return '"'+v+'"';}).join(', ')+')':'');
+  }).join('\n')+'\n\nFor the "family" field specifically: if what you\'re reading for an item matches one of the categories above - either its NAME or any of its listed raw text variants - use that category\'s EXACT NAME, character for character, even if the text printed on this page looks different (e.g. if the page says "Blue Diamond" but that\'s listed as a variant of "Bi-Metal Matrix Steel Hole Saw" above, use "Bi-Metal Matrix Steel Hole Saw", not "Blue Diamond"). Do not invent alternate wording or a near-duplicate for something that already exists here. Only write new family text if this item genuinely does not match any category or variant in this list.\n' : '';
   return 'You are extracting structured data from pages of a manufacturer product catalog PDF, for an e-commerce data pipeline. The goal is a lossless, structured record of what\'s printed for each item - NOT a summary. Capture every distinct spec, feature, and application mentioned; do not compress or shorten to save space.\n\n'+
   'The text below was reconstructed line-by-line from the PDF\'s visual layout (top to bottom, left to right within each line) so it roughly reads like the original table, but it is NOT perfect: a description that wraps onto two lines in the original may appear as two separate lines here, and a single description sometimes applies to two or three item numbers listed together (a merged cell in the original table). Page numbers are marked "--- PAGE N ---". Content may include tables of items with an Item Number/Item No./SKU/Model/Code column, dimensional or technical specs, a "Recommended Uses" or similar column of per-item notes, and marketing copy like "Applications" or "Features & Benefits" describing a whole product line rather than one item.'+knownBlock+'\n\n'+
   'Extract every distinct catalog entry as JSON objects with this shape:\n'+
