@@ -3264,6 +3264,61 @@ function tickExtractLabel(baseText){
 // through the same review tools used for everything else - Reject on a
 // wrong "New" card, "No, this isn't right" on a wrong "Saved" match, Edit
 // or Merge in the Category Manager - rather than a bespoke, hardcoded fix.
+function countLikelyItemNumbers(text){
+  var matches=text.match(/\b\d{4,6}\b/g)||[];
+  return new Set(matches).size;
+}
+// Round 30: this used to live only inline in the main extraction loop, so
+// retryFailedPages() had no access to it - retrying a failed piece of a
+// dense page called extractChunkPages directly with no split logic at
+// all, silently attempting the ENTIRE page (144 items) in one request
+// again instead of the small piece that actually failed. Confirmed real:
+// that turned a retry into a worse bet than the original attempt.
+// Pulling this out into one shared function used by both the first pass
+// AND every retry means a page dense enough to need splitting always
+// gets split the same way, whether this is the first attempt or the
+// fifth retry.
+async function extractPageWithAutoSplit(chunkPages,rangeLabel,totalPagesForLabel){
+  var SUBSPLIT_ITEM_THRESHOLD=50;
+  var soloPageText=chunkPages.length===1?(lastPageTexts[chunkPages[0]]||''):null;
+  var likelyItemCount=soloPageText!==null?countLikelyItemNumbers(soloPageText):0;
+  if(soloPageText!==null && likelyItemCount>SUBSPLIT_ITEM_THRESHOLD){
+    var pNumForSplit=chunkPages[0];
+    var textLines=soloPageText.split('\n');
+    // The collection/table names and column headers on a page like this
+    // one only appear once, near the top - confirmed the actual cause of
+    // an item coming back "Unclassified": it fell into a later row-range
+    // piece that no longer contained the header text at all, so that
+    // piece had no way to know which collection its own rows belonged
+    // to. Fix: detect where the header ends (the first line that
+    // actually looks like a data row) and prepend everything before that
+    // point to EVERY piece, not just whichever piece happens to start at
+    // line 1. Generic by detection, not hardcoded to any page.
+    var firstDataLineIdx=textLines.length;
+    for(var li=0;li<textLines.length;li++){
+      if(/\b\d{4,6}\b/.test(textLines[li])){ firstDataLineIdx=li; break; }
+    }
+    var headerLines=textLines.slice(0,firstDataLineIdx);
+    var dataLines=textLines.slice(firstDataLineIdx);
+    var pieceCount=Math.min(6,Math.ceil(likelyItemCount/SUBSPLIT_ITEM_THRESHOLD));
+    var linesPerPiece=Math.ceil(dataLines.length/pieceCount);
+    for(var pieceIdx=0;pieceIdx<pieceCount;pieceIdx++){
+      if(stops.mg1)break;
+      var pieceDataLines=dataLines.slice(pieceIdx*linesPerPiece,(pieceIdx+1)*linesPerPiece);
+      if(!pieceDataLines.length)continue;
+      var pieceLines=headerLines.concat(pieceDataLines);
+      var pieceLabel='Page '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+' - split, this page is unusually dense: ~'+likelyItemCount+' items)';
+      document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>'+pieceLabel;
+      await extractChunkPages([pNumForSplit],{overrideText:'\n--- PAGE '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+') ---\n'+pieceLines.join('\n'),overrideLabel:pieceLabel});
+      renderCatalogPreview();
+      if(pieceIdx+1<pieceCount&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
+    }
+  } else {
+    document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+(totalPagesForLabel?(' / '+totalPagesForLabel+' selected'):'');
+    await extractChunkPages(chunkPages);
+    renderCatalogPreview();
+  }
+}
 async function extractChunkPages(chunkPages, opts){
   opts=opts||{};
   var chunkText;
@@ -3480,10 +3535,6 @@ async function extractCatalog(){
     // needing to generate a huge number of separate output records, which
     // is the actual thing that runs out of budget, not the input size.
     var SUBSPLIT_ITEM_THRESHOLD=50;
-    function countLikelyItemNumbers(text){
-      var matches=text.match(/\b\d{4,6}\b/g)||[];
-      return new Set(matches).size;
-    }
     for(var c=0;c<pagesToRead.length;c+=CHUNK){
       if(stops.mg1){
         setMsg('mg1-msg','Stopped. '+catalogEntries.length+' entries extracted so far - you can merge with what was found, or run again to redo from the start.','warn');
@@ -3492,46 +3543,7 @@ async function extractCatalog(){
       var chunkPages=pagesToRead.slice(c,c+CHUNK);
       var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
       setProg('mg1',40+Math.round((c/pagesToRead.length)*55),'Extracting pages '+rangeLabel+' ('+Math.min(c+CHUNK,pagesToRead.length)+' of '+pagesToRead.length+' selected)');
-      var soloPageText=chunkPages.length===1?(lastPageTexts[chunkPages[0]]||''):null;
-      var likelyItemCount=soloPageText!==null?countLikelyItemNumbers(soloPageText):0;
-      if(soloPageText!==null && likelyItemCount>SUBSPLIT_ITEM_THRESHOLD){
-        var pNumForSplit=chunkPages[0];
-        var textLines=soloPageText.split('\n');
-        // The collection/table names and column headers on a page like
-        // this one only appear once, near the top - confirmed the actual
-        // cause of item 55041 coming back "Unclassified": it fell into a
-        // later row-range piece that no longer contained the "Bi-Metal /
-        // Varied Pitch" header text at all, so that piece had no way to
-        // know which collection its own rows belonged to. Fix: detect
-        // where the header ends (the first line that actually looks like
-        // a data row - i.e. contains an item-number-shaped token) and
-        // prepend everything before that point to EVERY piece, not just
-        // whichever piece happens to start at line 1. Generic by
-        // detection, not hardcoded to this page's specific line count.
-        var firstDataLineIdx=textLines.length;
-        for(var li=0;li<textLines.length;li++){
-          if(/\b\d{4,6}\b/.test(textLines[li])){ firstDataLineIdx=li; break; }
-        }
-        var headerLines=textLines.slice(0,firstDataLineIdx);
-        var dataLines=textLines.slice(firstDataLineIdx);
-        var pieceCount=Math.min(6,Math.ceil(likelyItemCount/SUBSPLIT_ITEM_THRESHOLD));
-        var linesPerPiece=Math.ceil(dataLines.length/pieceCount);
-        for(var pieceIdx=0;pieceIdx<pieceCount;pieceIdx++){
-          if(stops.mg1)break;
-          var pieceDataLines=dataLines.slice(pieceIdx*linesPerPiece,(pieceIdx+1)*linesPerPiece);
-          if(!pieceDataLines.length)continue;
-          var pieceLines=headerLines.concat(pieceDataLines);
-          var pieceLabel='Page '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+' - split, this page is unusually dense: ~'+likelyItemCount+' items)';
-          document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>'+pieceLabel;
-          await extractChunkPages([pNumForSplit],{overrideText:'\n--- PAGE '+pNumForSplit+' (part '+(pieceIdx+1)+' of '+pieceCount+') ---\n'+pieceLines.join('\n'),overrideLabel:pieceLabel});
-          renderCatalogPreview();
-          if(pieceIdx+1<pieceCount&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
-        }
-      } else {
-        document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Pages '+rangeLabel+' / '+pagesToRead.length+' selected';
-        await extractChunkPages(chunkPages);
-        renderCatalogPreview();
-      }
+      await extractPageWithAutoSplit(chunkPages,rangeLabel,pagesToRead.length);
       // Small pacing gap between chunk calls (not after the last one) - gives
       // the API a breath between back-to-back requests instead of firing them
       // as fast as each response returns, which helps avoid tripping
@@ -3563,23 +3575,27 @@ async function extractCatalog(){
 async function retryFailedPages(){
   if(!failedChunks.length)return;
   var toRetry=failedChunks.slice();
-  // Round 17 fix: drop EVERY catalogEntries entry - real items as well as
-  // failure placeholders - whose _srcPages overlaps a page being retried,
-  // not just placeholders matching an exact old-format family string. The
-  // previous version only ever removed placeholders, so any real items
-  // already salvaged from a partially-truncated page (e.g. 3 of 4 items
-  // recovered before a cutoff) stayed in catalogEntries AND got re-added
-  // when the retry re-extracted that same page successfully, producing
-  // silent duplicates. Matching by page number instead of by a hand-built
-  // family-label string is also robust to the label format changing later
-  // (it already differs between the single-page-truncation placeholder and
-  // the generic failure placeholder) since it doesn't need to know the
-  // exact wording at all.
+  // Round 30: a failed retry was silently deleting previously-successful
+  // data for that same page and replacing it with nothing - confirmed
+  // real: 144 correctly-extracted items for a page were removed here
+  // (correctly, to avoid duplicates IF the retry succeeds), but when the
+  // retry attempt ALSO failed (e.g. a genuine network drop), those 144
+  // items were already gone with nothing to take their place. A failed
+  // retry must never leave someone worse off than before they clicked it
+  // - so this now keeps a backup of what's removed per page, and restores
+  // it if that specific page is still failing after the retry attempt.
   var retryPages={};
   toRetry.forEach(function(f){f.pages.forEach(function(p){retryPages[p]=true;});});
+  var removedBackup={};
   catalogEntries=catalogEntries.filter(function(e){
     if(!e._srcPages)return true;
-    return!e._srcPages.some(function(p){return retryPages[p];});
+    var overlaps=e._srcPages.some(function(p){return retryPages[p];});
+    if(overlaps){
+      e._srcPages.forEach(function(p){
+        if(retryPages[p]){ if(!removedBackup[p])removedBackup[p]=[]; removedBackup[p].push(e); }
+      });
+    }
+    return!overlaps;
   });
   failedChunks=[];
   setMsg('mg1-msg','Retrying '+toRetry.length+' failed page-range(s)...','info');
@@ -3593,7 +3609,21 @@ async function retryFailedPages(){
     }
     setProg('mg1',Math.round((i/toRetry.length)*95),'Retrying pages '+toRetry[i].rangeLabel+' ('+(i+1)+' of '+toRetry.length+')');
     document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Retrying '+toRetry[i].rangeLabel;
-    await extractChunkPages(toRetry[i].pages);
+    var failedCountBefore=failedChunks.length;
+    await extractPageWithAutoSplit(toRetry[i].pages,toRetry[i].rangeLabel,null);
+    // If this specific page still failed just now, restore whatever was
+    // removed for it above rather than leaving it empty - the retry
+    // attempt itself already recorded its own new failure placeholder,
+    // so the person still sees a clear warning, they just don't ALSO
+    // lose the good data they had before clicking Retry.
+    if(failedChunks.length>failedCountBefore){
+      toRetry[i].pages.forEach(function(p){
+        if(removedBackup[p]&&removedBackup[p].length){
+          catalogEntries=catalogEntries.concat(removedBackup[p]);
+          removedBackup[p]=[];
+        }
+      });
+    }
     renderCatalogPreview();
     if(i+1<toRetry.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
   }
