@@ -3024,10 +3024,12 @@ function layoutPageText(textContent){
   }).join('\n');
 }
 function buildExtractPrompt(chunkText){
+  var knownNames = Object.keys(categoryLibrary.categories||{});
+  var knownBlock = knownNames.length ? '\n\nKNOWN CATEGORIES (already reviewed and approved by the person using this tool - '+knownNames.length+' total):\n'+knownNames.map(function(n){return '- '+n;}).join('\n')+'\n\nFor the "family" field specifically: if an item genuinely belongs to one of the categories listed above, use that EXACT name, character for character - do not invent alternate wording, a rephrasing, or a near-duplicate for something that already exists here (e.g. if "Carbide Tipped Hole Saw" is listed above, never write "Carbide-Tipped Hole Saw", "Hole Saws - Carbide Tipped", or similar variants - use the exact listed text). Only write new family text if this item genuinely does not match any category in this list.\n' : '';
   return 'You are extracting structured data from pages of a manufacturer product catalog PDF, for an e-commerce data pipeline. The goal is a lossless, structured record of what\'s printed for each item - NOT a summary. Capture every distinct spec, feature, and application mentioned; do not compress or shorten to save space.\n\n'+
-  'The text below was reconstructed line-by-line from the PDF\'s visual layout (top to bottom, left to right within each line) so it roughly reads like the original table, but it is NOT perfect: a description that wraps onto two lines in the original may appear as two separate lines here, and a single description sometimes applies to two or three item numbers listed together (a merged cell in the original table). Page numbers are marked "--- PAGE N ---". Content may include tables of items with an Item Number/Item No./SKU/Model/Code column, dimensional or technical specs, a "Recommended Uses" or similar column of per-item notes, and marketing copy like "Applications" or "Features & Benefits" describing a whole product line rather than one item.\n\n'+
+  'The text below was reconstructed line-by-line from the PDF\'s visual layout (top to bottom, left to right within each line) so it roughly reads like the original table, but it is NOT perfect: a description that wraps onto two lines in the original may appear as two separate lines here, and a single description sometimes applies to two or three item numbers listed together (a merged cell in the original table). Page numbers are marked "--- PAGE N ---". Content may include tables of items with an Item Number/Item No./SKU/Model/Code column, dimensional or technical specs, a "Recommended Uses" or similar column of per-item notes, and marketing copy like "Applications" or "Features & Benefits" describing a whole product line rather than one item.'+knownBlock+'\n\n'+
   'Extract every distinct catalog entry as JSON objects with this shape:\n'+
-  '{"item_no": "<the item/SKU/model code exactly as printed, or null if this entry describes a whole product line rather than one item>", "family": "<the product line or category name this belongs to - e.g. a table heading or section title>", "technical_specs": {"<Field Name exactly as the catalog labels it>": "<value exactly as printed>", ...}, "features": ["<short phrase describing what the product IS or HAS>", ...], "applications": ["<short phrase describing what it is USED FOR or best suited to>", ...]}\n\n'+
+  '{"item_no": "<the item/SKU/model code exactly as printed, or null if this entry describes a whole product line rather than one item>", "family": "<the product line or category name this belongs to - reuse an exact name from KNOWN CATEGORIES above if this item genuinely matches one; otherwise a table heading or section title>", "technical_specs": {"<Field Name exactly as the catalog labels it>": "<value exactly as printed>", ...}, "features": ["<short phrase describing what the product IS or HAS>", ...], "applications": ["<short phrase describing what it is USED FOR or best suited to>", ...]}\n\n'+
   'FIELD GUIDANCE:\n'+
   '- technical_specs: every measurable/nameable spec printed for this item - dimensions, material, tooth count, arbor size, thickness, grit, certifications, etc. Use the field name exactly as the catalog labels it (e.g. "Diameter", "T.P.I.", "Arbor"). Do not omit a spec because it seems minor - this is meant to be the complete spec set, not a highlight reel.\n'+
   '- features: short phrases (2-5 words), not full sentences, e.g. "Carbide-tipped", "Precision-ground teeth".\n'+
@@ -3251,9 +3253,18 @@ function correctPage28ColumnMisassignment(itemNo,family){
   if(!itemNo)return family;
   var n=parseInt(itemNo,10);
   if(isNaN(n))return family;
-  if(n>=55000&&n<=55999)return'Bi-Metal Varied Pitch Hole Saw';
-  if(n>=56000&&n<=56999)return'Carbide Tipped Imported Hole Saw';
-  if(n>=54000&&n<=54999)return'Blue Diamond Hole Saw';
+  // Bare minimum labels only, matching the catalog's own printed section
+  // names exactly - no added words of any kind (previously included
+  // "Imported" and "Hole Saw", which are exactly the kind of wording
+  // Ahmed has been deliberately stripping from category names all day;
+  // baking that in here bypassed his own cleanup, since the hardcoded
+  // text didn't match what he'd already renamed things to). All actual
+  // title wording should come from the category the person has set up,
+  // not from anything decided here - this only needs to correctly tell
+  // the three real collections apart, nothing more.
+  if(n>=55000&&n<=55999)return'Bi-Metal Varied Pitch';
+  if(n>=56000&&n<=56999)return'Carbide Tipped';
+  if(n>=54000&&n<=54999)return'Blue Diamond';
   return family;
 }
 async function extractChunkPages(chunkPages, opts){
