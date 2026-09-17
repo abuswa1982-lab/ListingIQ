@@ -3242,41 +3242,14 @@ function tickExtractLabel(baseText){
 // collection names ("Bi-Metal / Varied Pitch", "Carbide Tipped /
 // Imported", "Blue Diamond") the model has to tell apart purely from
 // reconstructed multi-column text - confirmed to fail completely for
-// this page: every item, regardless of which real column it came from,
-// came back labeled "Blue Diamond" (whichever collection name it read
-// first). Sterling's own item-number ranges make the real answer 100%
-// certain and checkable, so this corrects the guess using that fact
-// directly. Scoped specifically to the three ranges confirmed on this
-// one page of this one catalog - not a general mechanism, and would need
-// re-checking if applied to a different catalog with different numbering.
-function correctPage28ColumnMisassignment(itemNo,family){
-  if(!itemNo)return family;
-  var n=parseInt(itemNo,10);
-  if(isNaN(n))return family;
-  // The three real collections on this page, keyed by item-number range -
-  // 100% certain regardless of what the model reads from the page text.
-  // Rather than hardcoding a guess at the "right" wording (which broke
-  // last time - the person had renamed one to "Bi-Metal Matrix Steel Hole
-  // Saw", a name that doesn't appear anywhere on the printed page, so a
-  // hardcoded string could never match it), this looks up whatever
-  // category the person has ALREADY approved for that range right now,
-  // using the raw catalog text as the search key against every category's
-  // saved rawLabels. Falls back to the bare catalog-printed name only if
-  // nothing has been approved for that range yet.
-  var rangeInfo=null;
-  if(n>=55000&&n<=55999)rangeInfo={fallback:'Bi-Metal Varied Pitch',rawVariants:['bi-metal varied pitch','hole saws - bi-metal varied pitch (imported)','hole saws - bi-metal','bi-metal varied pitch hole saw']};
-  else if(n>=56000&&n<=56999)rangeInfo={fallback:'Carbide Tipped',rawVariants:['carbide tipped','carbide tipped imported','carbide tipped imported hole saw','hole saws - carbide tipped']};
-  else if(n>=54000&&n<=54999)rangeInfo={fallback:'Blue Diamond',rawVariants:['blue diamond','blue diamond hole saw','blue diamond\u2122']};
-  if(!rangeInfo)return family;
-  var cats=categoryLibrary.categories||{};
-  for(var catName in cats){
-    var rawLabels=cats[catName].rawLabels||[];
-    for(var i=0;i<rangeInfo.rawVariants.length;i++){
-      if(rawLabels.indexOf(rangeInfo.rawVariants[i])!==-1)return catName;
-    }
-  }
-  return rangeInfo.fallback;
-}
+// this page. Removed the item-number-range correction that used to live
+// here: it only worked for this one page of this one catalog (Sterling's
+// own specific numbering), fought against the general "known categories"
+// mechanism, and meant nothing for any other page or catalog. Any
+// remaining column-confusion on a hard page like this one now goes
+// through the same review tools used for everything else - Reject on a
+// wrong "New" card, "No, this isn't right" on a wrong "Saved" match, Edit
+// or Merge in the Category Manager - rather than a bespoke, hardcoded fix.
 async function extractChunkPages(chunkPages, opts){
   opts=opts||{};
   var chunkText;
@@ -3336,7 +3309,6 @@ async function extractChunkPages(chunkPages, opts){
         if(!e||typeof e!=='object')return;
         var itemNo=e.item_no?String(e.item_no).trim():null;
         var family=e.family?String(e.family).trim():'';
-        family=correctPage28ColumnMisassignment(itemNo,family);
         if(!family&&!itemNo)return;
         var technicalSpecs={};
         if(e.technical_specs&&typeof e.technical_specs==='object'&&!Array.isArray(e.technical_specs)){
