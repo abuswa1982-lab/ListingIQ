@@ -770,6 +770,45 @@ function getCategoryExampleForRow(i){
   var cat = categoryLibrary.categories[map[i]];
   return cat ? (cat.exampleTitle||null) : null;
 }
+// Round 31: Highlights, Description, and the Specs Table had no template
+// mechanism at all - each item's field set (which specs appear, what
+// they're called, how many bullets) was independently reinvented every
+// time, even for items already confirmed to be the same real category.
+// Confirmed real: within one category, the same spec showed up as
+// "Material", "Material Construction", or "Construction" depending on
+// which item generated it, and some items dropped fields entirely. This
+// reuses the exact category a row already resolved to for its title
+// (via matchCategory on its own raw category text) - no new review step,
+// nothing added to the category-matching/extraction flow. The FIRST item
+// generated for a category becomes that category's template for this
+// field; every later item in the same category is told to match that
+// same field set, dropping only what it genuinely lacks data for, never
+// inventing a substitute field or leaving one visibly empty.
+function getCategoryForRow(row){
+  var raw = getRowCategoryRaw(row);
+  if(!raw) return null;
+  var m = matchCategory(raw);
+  return (m.status==='saved') ? m.canonical : null;
+}
+function getCategoryFieldTemplate(row,fieldKey){
+  var catName = getCategoryForRow(row);
+  if(!catName) return null;
+  var cat = categoryLibrary.categories[catName];
+  return cat ? (cat[fieldKey]||null) : null;
+}
+function saveCategoryFieldTemplateIfMissing(row,fieldKey,value){
+  var catName = getCategoryForRow(row);
+  if(!catName || !value) return;
+  var cat = categoryLibrary.categories[catName];
+  if(cat && !cat[fieldKey]){
+    cat[fieldKey] = value;
+    saveCategoryLibrary();
+  }
+}
+function categoryTemplateBlock(template,kindLabel){
+  if(!template) return '';
+  return '\n\nA '+kindLabel+' for this exact product category was already generated and is the FIXED FIELD SET to follow, not a loose style reference:\n'+template+'\n\nSTRICT RULES:\n1. Use the SAME set of attributes/fields as the reference above, in the SAME order - do not add a field that isn\'t in the reference, and do not invent a differently-named field for something the reference already covers (e.g. if the reference says "Material", never write "Material Construction" or "Construction" for this item).\n2. If THIS item genuinely has no data for one of the reference\'s fields, leave that one field out entirely - never show it empty or invent a placeholder value.\n3. Only the ACTUAL VALUES change - the field names, structure, and order must match the reference exactly.';
+}
 function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 // ---- Round 25: category review modal ----
 // activeCatReview holds the in-progress review session: the queue of
@@ -1244,13 +1283,25 @@ function renderCategoryManager(){
   function renderOneCategory(name){
     var cat = categoryLibrary.categories[name];
     var variantCount = (cat.rawLabels||[]).length;
-    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in</div></div>'+
+    var contentTemplateCount = ['exampleHighlights','exampleDescription','exampleTable'].filter(function(k){return !!cat[k];}).length;
+    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in'+(contentTemplateCount?' &middot; '+contentTemplateCount+' content template'+(contentTemplateCount===1?'':'s')+' set (Highlights/Description/Table)':'')+'</div></div>'+
       '<div class="catcard-btns" style="margin-top:0;">'+
         '<button class="catcard-btn" onclick="editCategoryExamplePrompt(\''+escJs(name)+'\')">Edit</button>'+
         '<button class="catcard-btn" onclick="renameCategoryPrompt(\''+escJs(name)+'\')">Rename</button>'+
         '<button class="catcard-btn" onclick="mergeCategoryPrompt(\''+escJs(name)+'\')">Merge into...</button>'+
+        (contentTemplateCount?'<button class="catcard-btn" onclick="clearContentTemplates(\''+escJs(name)+'\')" title="Clear the saved Highlights/Description/Table field-set so the next generated item sets a fresh one">Clear content templates</button>':'')+
         '<button class="catcard-btn" onclick="deleteCategoryPrompt(\''+escJs(name)+'\')">Delete</button>'+
       '</div></div></div>';
+  }
+  function clearContentTemplates(name){
+    var cat = categoryLibrary.categories[name];
+    if(!cat) return;
+    if(!confirm('Clear the saved Highlights/Description/Table field-set for "'+name+'"? The next item generated in this category will set a fresh one from scratch; nothing already generated is changed.')) return;
+    delete cat.exampleHighlights;
+    delete cat.exampleDescription;
+    delete cat.exampleTable;
+    saveCategoryLibrary();
+    renderCategoryManager();
   }
 
   var grouped = {};
@@ -2487,12 +2538,14 @@ async function runTab2(isResume){
       if(cached2){
         results.t2.push({partNumber:pn,html:cached2.html,row:row,reusedFrom:cached2.partNumber});
       } else {
-        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
+        var hlTemplate = getCategoryFieldTemplate(row,'exampleHighlights');
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity (e.g. "Packaged 5 per box") as a highlight - not a buyer-facing spec worth a bullet here\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(hlTemplate,'Highlights list')+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
         var rhtml=await apiCallRetry(prompt,600,5,90000,function(){return stops.t2;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry2={partNumber:pn,html:rhtml,row:row};
         results.t2.push(entry2);
         if(bKey2&&!(bKey2 in variantCache2))variantCache2[bKey2]=entry2;
+        if(!hlTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleHighlights',rhtml);
       }
       renderTab('t2',results.t2);
     } catch (rowErr) {
@@ -2556,6 +2609,7 @@ async function runTab3(isResume){
       } else {
         var masterRec3=bKey3?masterRecords[bKey3]:null;
         var prompt;
+        var descTemplate = masterRec3 ? getCategoryFieldTemplate(row,'exampleDescription') : null;
         if(masterRec3){
           // Master record available (Phase 3/4): unlike the old verbatim-only
           // path below, this is allowed to actually COMPOSE a description -
@@ -2565,7 +2619,7 @@ async function runTab3(isResume){
           // any known Excel-vs-catalog conflict must be stated explicitly
           // rather than silently resolved.
           var mrText3=formatMasterRecordText(masterRec3);
-          prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nWrite a clear, well-organized product description in HTML for this listing, using the verified product data below.\n\nRULES:\n- Use <p> for paragraphs and <ul><li> for feature/application lists - organize related specs, features, and applications into readable prose rather than just repeating raw labels, but do not change any fact\'s meaning.\n- Do NOT include a "Part Number" or "Brand" line - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items that intentionally reuse this exact same content.\n- If a spec appears with two different values from the two sources (e.g. "Length (spec sheet)": ... and "Length (catalog)": ...), state both explicitly rather than picking one - do not silently drop or choose between them.\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags outside the content.'+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+(mrText3||'(no data)');
+          prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nWrite a clear, well-organized product description in HTML for this listing, using the verified product data below.\n\nRULES:\n- Use <p> for paragraphs and <ul><li> for feature/application lists - organize related specs, features, and applications into readable prose rather than just repeating raw labels, but do not change any fact\'s meaning.\n- Do NOT include a "Part Number" or "Brand" line - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items that intentionally reuse this exact same content.\n- Do NOT include packaging or box/pack quantity - not relevant to this description.\n- If a spec appears with two different values from the two sources (e.g. "Length (spec sheet)": ... and "Length (catalog)": ...), state both explicitly rather than picking one - do not silently drop or choose between them.\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags outside the content.'+DATA_FIDELITY_RULE+categoryTemplateBlock(descTemplate,'Description')+'\n\nPRODUCT DATA:\n'+(mrText3||'(no data)');
         } else {
           // No master record for this item (e.g. a plain single-table upload
           // that skipped Merge Data / Build Master Records) - fall back to
@@ -2584,6 +2638,7 @@ async function runTab3(isResume){
         var entry3={partNumber:pn,html:rhtml,row:row};
         results.t3.push(entry3);
         if(bKey3&&!(bKey3 in variantCache3))variantCache3[bKey3]=entry3;
+        if(masterRec3&&!descTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleDescription',rhtml);
       }
       renderTab('t3',results.t3);
     } catch (rowErr) {
@@ -2645,12 +2700,14 @@ async function runTab4(isResume){
       if(cached4){
         results.t4.push({partNumber:pn,html:cached4.html,row:row,reusedFrom:cached4.partNumber});
       } else {
-        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Do NOT include a "Part Number" or "Brand" row - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
+        var tblTemplate = getCategoryFieldTemplate(row,'exampleTable');
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Do NOT include a "Part Number" or "Brand" row - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity as a row - not a spec worth a table row here\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(tblTemplate,'Specs Table')+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
         var rhtml=await apiCallRetry(prompt,800,5,90000,function(){return stops.t4;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry4={partNumber:pn,html:rhtml,row:row};
         results.t4.push(entry4);
         if(bKey4&&!(bKey4 in variantCache4))variantCache4[bKey4]=entry4;
+        if(!tblTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleTable',rhtml);
       }
       renderTab('t4',results.t4);
     } catch (rowErr) {
