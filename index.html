@@ -2779,6 +2779,19 @@ function updateConsolGrid(){
 function runConsolidate(){
   var hasAny=results.t1.length||results.t2.length||results.t3.length||results.t4.length||(fileData&&fileData.length);
   if(!hasAny){setMsg('t5-msg','No data yet - upload/merge a file, or generate at least one tab first.','error');return;}
+  // Round 32 (Ahmed's "Export Validation Fixes" doc): run the deterministic
+  // (no-AI-call) validation checks - HTML truncation and leaked product-
+  // line labels, alongside the existing duplicate/thin-data checks - right
+  // before the export is built, so a problem is visible before the file
+  // downloads instead of only if Ahmed remembers to separately click "Run
+  // QA Check" afterward. Purely additive reporting: reads results.t2/t3/t4
+  // and mergedForFileData/fileData, writes only to the existing qaResults
+  // array/QA panel below - does not touch fileData, results, runState,
+  // categoryLibrary, or any Resume/Stop/category-review logic. The
+  // AI-based unsupported-claims check still needs its own "Run QA Check"
+  // click since it costs one API call per item; this does not replace that.
+  qaResults=runDeterministicQA();
+  renderQAResults();
   var wb=XLSX.utils.book_new();
   var pnMap={};
   function addRows(arr,field){arr.forEach(function(r){var pn=r.partNumber||'';if(!pnMap[pn])pnMap[pn]={};if(field==='title'){if(r.titles){if(r.titles.amazon)pnMap[pn].amazon=r.titles.amazon;if(r.titles.ebay)pnMap[pn].ebay=r.titles.ebay;if(r.titles.website)pnMap[pn].website=r.titles.website;}else{pnMap[pn][r.channel||'title']=r.title||'';}}else{pnMap[pn][field]=r.html||r.slug||'';}});}
@@ -2808,7 +2821,8 @@ function runConsolidate(){
   if(fileData&&fileData.length){var sdr=[['Part Number','Structured Data (JSON-LD)']];fileData.forEach(function(row){var pn=getPN(row)||'';sdr.push([pn,pnMap[pn]?pnMap[pn].structured_data||'':'']);});var wsSd=XLSX.utils.aoa_to_sheet(sdr);wsSd['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,wsSd,'Structured Data');}
   if(results.slugs.length){var slr=[['Part Number','Title','URL Slug']];results.slugs.forEach(function(r){slr.push([r.partNumber||'',r.title||'',r.slug||'']);});var wsl=XLSX.utils.aoa_to_sheet(slr);wsl['!cols']=[{wch:18},{wch:50},{wch:55}];XLSX.utils.book_append_sheet(wb,wsl,'URL Slugs');}
   XLSX.writeFile(wb,'ListingIQ-Export.xlsx');
-  setMsg('t5-msg','Export complete.','success');
+  var qaNote=qaResults.length?(' '+qaResults.length+' potential issue(s) found by the deterministic checks (see QA Issues panel below) - export still completed, this is informational only.'):' No issues found by the deterministic checks.';
+  setMsg('t5-msg','Export complete.'+qaNote,qaResults.length?'warn':'success');
 }
 function expCSV(prefix){
   var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
@@ -3113,6 +3127,8 @@ function buildExtractPrompt(chunkText){
   '- Separately, one object per product-line-level description block (Applications, Features & Benefits, general intro paragraphs) with item_no set to null - split that prose into features/applications the same way.\n'+
   '- Skip pages with no useful catalog content (covers, table of contents, pure photos, safety warnings, ordering instructions, contact info).\n'+
   '- Do not invent or guess content that is not present in the text below. If you truly cannot tell what belongs to an item number, still record the item_no with empty technical_specs/features/applications rather than omitting it.\n'+
+  '- Table columns are often printed close together with no visible divider between them. Never place a value from one column under a different column\'s label just because it sits nearby - e.g. in a table with adjacent Width, Thickness, and Tooth-Count columns, a width-in-millimeters figure must never be recorded under a Tooth-Count (or any other neighboring column\'s) label just because it happens to be positioned close to it. If you are not confident which column a value belongs to, it is better to omit that value than to guess and attach it to the wrong spec name.\n'+
+  '- Never invent a technical_specs KEY from a bolded heading, product name, or section title printed above a table - those describe the whole product line, not a single spec, and must only ever be used for the "family" field, never as a spec label.\n'+
   '- Respond with ONLY a JSON array. No markdown, no explanation, no code fences.\n\n'+
   'PAGE TEXT:\n'+chunkText;
 }
@@ -4056,6 +4072,46 @@ function downloadMasterRecords(){
 function stripHtmlForCompare(html){
   return String(html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().toLowerCase();
 }
+// Round 32 (Ahmed's "Export Validation Fixes" doc, Fix 1): pure, read-only
+// tag-balance check for Highlights/Description/Specs Table HTML already
+// sitting in results.t2/t3/t4. An AI response that gets cut off mid-
+// sentence (hits its token budget) typically leaves one or more of these
+// tags open with no matching close. This does not try to repair anything -
+// that needs a human judgment call about what content is actually missing -
+// it only flags it so it doesn't slip into an export unnoticed.
+function checkHtmlBalance(html){
+  var s=String(html||'');
+  var tags=['li','ul','p','tr','td','strong'];
+  var mismatches=[];
+  tags.forEach(function(tag){
+    var openCount=(s.match(new RegExp('<'+tag+'(?:\\s[^>]*)?>','gi'))||[]).length;
+    var closeCount=(s.match(new RegExp('<\\/'+tag+'\\s*>','gi'))||[]).length;
+    if(openCount!==closeCount)mismatches.push({tag:tag,open:openCount,close:closeCount});
+  });
+  return {balanced:mismatches.length===0,mismatches:mismatches};
+}
+// Round 32 (Fix 2 helper): pulls just the left-hand <td> (the attribute
+// LABEL, not the value) out of each body row of a Specs Table's HTML,
+// ignoring the <thead> header row entirely so "Attribute"/"Value" never
+// get mistaken for a real label. Matches the exact markup runTab4() asks
+// the model to produce: <table><thead>...</thead><tbody><tr><td>label</td>
+// <td>value</td></tr>...</tbody></table>.
+function extractSpecsTableLabels(html){
+  var s=String(html||'').replace(/<thead[\s\S]*?<\/thead>/gi,'');
+  var labels=[];
+  var trRe=/<tr[^>]*>([\s\S]*?)<\/tr>/gi,m;
+  while((m=trRe.exec(s))){
+    var tdMatch=/<td[^>]*>([\s\S]*?)<\/td>/i.exec(m[1]);
+    if(tdMatch){
+      var label=tdMatch[1].replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
+      if(label)labels.push(label);
+    }
+  }
+  return labels;
+}
+function normalizeForLabelCompare(s){
+  return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
 function runDeterministicQA(){
   var flags=[];
   // Two DIFFERENT base items with identical Highlights/Description/Table
@@ -4088,6 +4144,44 @@ function runDeterministicQA(){
     if(!hasData){
       flags.push({baseKey:bKey,partNumber:row['Part Number'],type:'thin',detail:'No technical specs, features, or applications found for this item from any source - generated content for it is likely to be very weak.'});
     }
+  });
+  // Round 32, Fix 1: flag any Highlights/Description/Specs Table field
+  // whose HTML tags don't balance - a strong signal the response that
+  // generated it got cut off mid-sentence before finishing.
+  var fieldLabel={t2:'Highlights (HTML)',t3:'Description (HTML)',t4:'Specs Table (HTML)'};
+  ['t2','t3','t4'].forEach(function(t){
+    (results[t]||[]).forEach(function(r){
+      var check=checkHtmlBalance(r.html);
+      if(!check.balanced){
+        var detail=check.mismatches.map(function(mm){return '<'+mm.tag+'>: '+mm.open+' open vs '+mm.close+' close';}).join(', ');
+        flags.push({baseKey:baseItemKey(r.partNumber),partNumber:r.partNumber,type:'truncated',detail:fieldLabel[t]+' has unbalanced HTML tags ('+detail+') - likely a response that was cut off before finishing; consider regenerating this row.'});
+      }
+    });
+  });
+  // Round 32, Fix 2: a product-line heading near a spec table sometimes
+  // gets picked up as if it were a column header during extraction, so it
+  // ends up as a technical_specs KEY instead of describing the item. This
+  // compares each Specs Table row's left-hand label against the item's own
+  // Product Type - which, for any row matched to a catalog entry, already
+  // carries that catalog entry's "family" string (see mergeData()'s
+  // 'Product Type':family||productTypeFallback), so a single comparison
+  // covers both sources the fix doc asked for without threading any new
+  // field through.
+  (results.t4||[]).forEach(function(r){
+    var labels=extractSpecsTableLabels(r.html);
+    if(!labels.length)return;
+    var bKey=baseItemKey(r.partNumber);
+    var srcRow=null;
+    var pool=mergedForFileData.length?mergedForFileData:(fileData||[]);
+    pool.forEach(function(rw){if(!srcRow&&baseItemKey(rw['Part Number'])===bKey)srcRow=rw;});
+    var productType=srcRow?String(srcRow['Product Type']||'').trim():'';
+    var normPT=normalizeForLabelCompare(productType);
+    if(!normPT)return;
+    labels.forEach(function(label){
+      if(normalizeForLabelCompare(label)===normPT){
+        flags.push({baseKey:bKey,partNumber:r.partNumber,type:'label-leak',detail:'Specs Table field label "'+label+'" matches this item\'s Product Type/category ("'+productType+'") - likely a real spec field name got replaced by the product name during extraction.'});
+      }
+    });
   });
   return flags;
 }
@@ -4164,10 +4258,10 @@ function renderQAResults(){
   var tbody=document.getElementById('qa-tbody');
   if(!tbody)return;
   if(!qaResults.length){
-    tbody.innerHTML='<tr><td colspan="3" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No issues found yet - click Run QA Check above.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="3" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No issues found.</td></tr>';
     return;
   }
-  var typeLabel={duplicate:'Duplicate',thin:'Thin data',unsupported:'Unsupported claim','check-failed':'Check failed'};
+  var typeLabel={duplicate:'Duplicate',thin:'Thin data',unsupported:'Unsupported claim','check-failed':'Check failed',truncated:'Truncated HTML','label-leak':'Label leak'};
   var rows=qaResults.slice(0,300).map(function(f){
     return '<tr><td class="td-pn">'+esc(f.partNumber)+'</td><td>'+esc(typeLabel[f.type]||f.type)+'</td><td class="td-main">'+esc(f.detail)+'</td></tr>';
   }).join('');
