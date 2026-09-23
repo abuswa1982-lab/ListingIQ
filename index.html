@@ -492,7 +492,7 @@ var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFr
 // actually provided (which itself comes only from the uploaded spec sheet
 // and/or catalog) - nothing invented, nothing filled in from the model's
 // general knowledge of the product category.
-var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.';
+var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- Do NOT add a generic explanation of HOW or WHY a feature works or matters unless that explanation is itself present in the PRODUCT DATA. For example, do not add filler like "helps center the hole saw and guide accurate, clean cuts," "quick, secure attachment to compatible drills and drivers," "for proper fitment onto matching hole saws," or "for durable cutting performance" - stating a spec (e.g. a shank size) is fine; adding the reason it\'s beneficial is not, unless the PRODUCT DATA says so.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.';
 // ============================================================================
 // Round 25: Category Rules - a saved, per-category library of approved title
 // patterns, built up over time instead of the app (or a general AI model)
@@ -2422,7 +2422,14 @@ async function retryFailedT1Rows(){
   updateConsolGrid();
 }
 function renderT1(){
-  var isAll=results.t1.length&&results.t1[0].titles;
+  // Round 34b: the "isAll" (multi-channel Amazon/eBay/Website) shape has been
+  // unreachable since round 19 removed those channels from the Product Name
+  // dropdown - results.t1 rows only ever have .title/.channel now. Removed
+  // the dead branch entirely (was previously left in place across rounds 19,
+  // 20, 33) after Ahmed reported still seeing Amazon/eBay in an export;
+  // while that specific report traced to a different, now-fixed sheet (see
+  // the "Product Names" sheet fix above), this dead code was a real,
+  // legitimate source of confusion for anyone reading the file and is gone now.
   var thead=document.getElementById('t1-thead');
   var tbody=document.getElementById('t1-tbody');
   if(!results.t1.length){
@@ -2431,42 +2438,27 @@ function renderT1(){
     document.getElementById('t1-meta').textContent='0 items';
     return;
   }
-  if(isAll){
-    thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>Amazon (200)</th><th>eBay (80)</th><th>Website (70)</th></tr>';
-  }else{
-    var ch=results.t1[0]?results.t1[0].channel:'website';
-    var headCfg=CH[ch]||CH.website; // Round 20: guard against a stale/unrecognized channel on row 0
-    thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>'+headCfg.label+' Title</th><th>Chars</th><th></th></tr>';
-  }
+  var ch=results.t1[0]?results.t1[0].channel:'website';
+  var headCfg=CH[ch]||CH.website; // Round 20: guard against a stale/unrecognized channel on row 0
+  thead.innerHTML='<tr><th><input type="checkbox" id="t1-chkall" onchange="toggleAll(this)"></th><th>#</th><th>Part Number</th><th>'+headCfg.label+' Title</th><th>Chars</th><th></th></tr>';
   var rows='';
   for(var i=0;i<results.t1.length;i++){
     var r=results.t1[i];
     rows+='<tr><td class="td-cb"><input type="checkbox" class="t1-chk" data-i="'+i+'" onchange="updSel()" style="cursor:pointer"></td>';
     rows+='<td class="td-num">'+(i+1)+'</td><td class="td-pn">'+esc(r.partNumber||'')+(r.reusedFrom?'<br><span class="uz-sub" style="font-size:9px;">&#9851; same as '+esc(r.reusedFrom)+'</span>':'')+'</td>';
-    if(isAll){
-      var chs=['amazon','ebay','website'];
-      for(var ci=0;ci<chs.length;ci++){
-        var ch2=chs[ci];var cfg=CH[ch2];
-        var tv=r.titles&&r.titles[ch2]?r.titles[ch2]:'';
-        var len=tv.length;
-        var cls=len>cfg.max?'c-over':len>=cfg.target*0.85?'c-ok':'c-warn';
-        rows+='<td><span class="pill '+cfg.pill+'">'+cfg.label+'</span><br><span class="td-main">'+esc(tv)+'</span><br><span class="td-chars '+cls+'">'+len+'/'+cfg.max+'</span> <button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch2+'" onclick="cp(this)">Copy</button></td>';
-      }
+    var ch3=r.channel;var cfg3=CH[ch3];var tv3=r.title||'';
+    if(!cfg3){
+      // Round 20: a row whose .channel doesn't match any CH key used to
+      // crash the ENTIRE table (not just this row) with "Cannot read
+      // properties of undefined (reading 'max')". Render a clear,
+      // row-scoped message instead so one bad row can't take down the
+      // whole result table, and log it so the actual bad value is visible.
+      console.warn('[ListingIQ] renderT1: row '+i+' has an unrecognized channel, rendering a placeholder.',{channel:ch3,row:r});
+      rows+='<td class="td-main" style="color:#c0392b;">Could not display this row (unrecognized output channel). Re-generate this row.</td><td class="td-chars">-</td><td></td>';
     } else {
-      var ch3=r.channel;var cfg3=CH[ch3];var tv3=r.title||'';
-      if(!cfg3){
-        // Round 20: a row whose .channel doesn't match any CH key used to
-        // crash the ENTIRE table (not just this row) with "Cannot read
-        // properties of undefined (reading 'max')". Render a clear,
-        // row-scoped message instead so one bad row can't take down the
-        // whole result table, and log it so the actual bad value is visible.
-        console.warn('[ListingIQ] renderT1: row '+i+' has an unrecognized channel, rendering a placeholder.',{channel:ch3,row:r});
-        rows+='<td class="td-main" style="color:#c0392b;">Could not display this row (unrecognized output channel). Re-generate this row.</td><td class="td-chars">-</td><td></td>';
-      } else {
-        var len3=tv3.length;
-        var cls3=len3>cfg3.max?'c-over':len3>=cfg3.target*0.85?'c-ok':'c-warn';
-        rows+='<td class="td-main">'+esc(tv3)+'</td><td class="td-chars '+cls3+'">'+len3+'/'+cfg3.max+'</td><td><button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch3+'" onclick="cp(this)">Copy</button></td>';
-      }
+      var len3=tv3.length;
+      var cls3=len3>cfg3.max?'c-over':len3>=cfg3.target*0.85?'c-ok':'c-warn';
+      rows+='<td class="td-main">'+esc(tv3)+'</td><td class="td-chars '+cls3+'">'+len3+'/'+cfg3.max+'</td><td><button class="cpbtn" data-src="t1-title" data-idx="'+i+'" data-ch="'+ch3+'" onclick="cp(this)">Copy</button></td>';
     }
     rows+='</tr>';
   }
@@ -2491,8 +2483,7 @@ function genSlugs(){
   checked.forEach(function(cb){
     var idx=parseInt(cb.getAttribute('data-i'));
     var r=results.t1[idx];
-    var isAll=r.titles!=null;
-    var title=isAll?(r.titles.website||r.titles.amazon||''):(r.title||'');
+    var title=r.title||'';
     results.slugs.push({index:idx+1,partNumber:r.partNumber||'',title:title,slug:toSlug(title)});
   });
   var rows='';
@@ -2756,7 +2747,7 @@ function cp(btn){
   var idx=parseInt(btn.getAttribute('data-idx'));
   var src=btn.getAttribute('data-src');
   var txt='';
-  if(src==='t1-title'){var r=results.t1[idx];var ch=btn.getAttribute('data-ch');txt=r.titles?(r.titles[ch]||''):(r.title||'');}
+  if(src==='t1-title'){var r=results.t1[idx];txt=r?(r.title||''):'';}
   else if(src==='t1-slug'){txt=results.slugs[idx]?results.slugs[idx].slug:'';}
   else if(src==='t2'){txt=results.t2[idx]?results.t2[idx].html:'';}
   else if(src==='t3'){txt=results.t3[idx]?results.t3[idx].html:'';}
@@ -2794,7 +2785,7 @@ function runConsolidate(){
   renderQAResults();
   var wb=XLSX.utils.book_new();
   var pnMap={};
-  function addRows(arr,field){arr.forEach(function(r){var pn=r.partNumber||'';if(!pnMap[pn])pnMap[pn]={};if(field==='title'){if(r.titles){if(r.titles.amazon)pnMap[pn].amazon=r.titles.amazon;if(r.titles.ebay)pnMap[pn].ebay=r.titles.ebay;if(r.titles.website)pnMap[pn].website=r.titles.website;}else{pnMap[pn][r.channel||'title']=r.title||'';}}else{pnMap[pn][field]=r.html||r.slug||'';}});}
+  function addRows(arr,field){arr.forEach(function(r){var pn=r.partNumber||'';if(!pnMap[pn])pnMap[pn]={};if(field==='title'){pnMap[pn][r.channel||'title']=r.title||'';}else{pnMap[pn][field]=r.html||r.slug||'';}});}
   addRows(results.t1,'title');addRows(results.slugs,'slug');addRows(results.t2,'highlights');addRows(results.t3,'description');addRows(results.t4,'html_table');
   // Structured data needs no "generate" step of its own - it's built fresh
   // for every row already in the merged sheet, straight from those fields,
@@ -2808,13 +2799,27 @@ function runConsolidate(){
       pnMap[pn].structured_data=JSON.stringify(buildProductJsonLd(row,familyGroupsExport[bKeyExport]),null,2);
     });
   }
-  var headers=['Part Number','Amazon Title','eBay Title','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)','Structured Data (JSON-LD)'];
+  // Round 33: Amazon/eBay were removed from the Product Name dropdown back
+  // in round 19 (Website/SEO only, per Ahmed's explicit request) - but this
+  // export sheet kept "Amazon Title"/"eBay Title" columns that can never be
+  // populated through the UI anymore, so they showed up permanently blank
+  // next to a real "Website Title" column. Ahmed flagged this directly as
+  // confusing clutter, so those two dead columns are dropped here.
+  var headers=['Part Number','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)','Structured Data (JSON-LD)'];
   var rows=[headers];
-  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.amazon||'',d.ebay||'',d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'',d.structured_data||'']);});
+  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'',d.structured_data||'']);});
   var ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:18},{wch:60},{wch:45},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50},{wch:60}];
+  ws['!cols']=[{wch:18},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50},{wch:60}];
   XLSX.utils.book_append_sheet(wb,ws,'All Outputs');
-  if(results.t1.length){var t1r=[['Part Number','Title','Channel','Characters']];results.t1.forEach(function(r){if(r.titles){['amazon','ebay','website'].forEach(function(ch){if(r.titles[ch])t1r.push([r.partNumber||'',r.titles[ch],ch,r.titles[ch].length]);});}else{t1r.push([r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);}});var ws1=XLSX.utils.aoa_to_sheet(t1r);ws1['!cols']=[{wch:18},{wch:60},{wch:12},{wch:10}];XLSX.utils.book_append_sheet(wb,ws1,'Product Names');}
+  // Round 34b: this sheet's old-shape branch (r.titles / amazon-ebay-website
+  // loop) is dead - results.t1 has been single-channel-only (r.title/r.channel)
+  // since round 19 removed Amazon/eBay from the UI - but Ahmed reported still
+  // seeing Amazon/eBay in an export after round 33 removed them from the "All
+  // Outputs" sheet. That sheet was clean; this separate "Product Names" sheet
+  // (and expCSV()/expXLSX() below) still had the old dead branch sitting in
+  // the code. Removed here so there is no remaining code path, dead or not,
+  // that can ever again produce Amazon/eBay text in any export.
+  if(results.t1.length){var t1r=[['Part Number','Title','Channel','Characters']];results.t1.forEach(function(r){t1r.push([r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});var ws1=XLSX.utils.aoa_to_sheet(t1r);ws1['!cols']=[{wch:18},{wch:60},{wch:12},{wch:10}];XLSX.utils.book_append_sheet(wb,ws1,'Product Names');}
   if(results.t2.length){var t2r=[['Part Number','Highlights (HTML)']];results.t2.forEach(function(r){t2r.push([r.partNumber||'',r.html||'']);});var ws2=XLSX.utils.aoa_to_sheet(t2r);ws2['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws2,'Highlights');}
   if(results.t3.length){var t3r=[['Part Number','Description (HTML)']];results.t3.forEach(function(r){t3r.push([r.partNumber||'',r.html||'']);});var ws3=XLSX.utils.aoa_to_sheet(t3r);ws3['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws3,'Descriptions');}
   if(results.t4.length){var t4r=[['Part Number','Specs Table (HTML)']];results.t4.forEach(function(r){t4r.push([r.partNumber||'',r.html||'']);});var ws4=XLSX.utils.aoa_to_sheet(t4r);ws4['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws4,'HTML Tables');}
@@ -2824,13 +2829,17 @@ function runConsolidate(){
   var qaNote=qaResults.length?(' '+qaResults.length+' potential issue(s) found by the deterministic checks (see QA Issues panel below) - export still completed, this is informational only.'):' No issues found by the deterministic checks.';
   setMsg('t5-msg','Export complete.'+qaNote,qaResults.length?'warn':'success');
 }
+// Round 34b: both functions below used to branch on a "titles" object shape
+// (isAll) to print Amazon/eBay Title columns - that shape has been
+// unreachable since round 19 removed Amazon/eBay from the Product Name
+// dropdown (results.t1 rows only ever have .title/.channel now), but the
+// dead branch was still sitting in the code. Removed for the same reason as
+// the "Product Names" sheet fix above.
 function expCSV(prefix){
   var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
   var rows;
   if(prefix==='t1'){
-    var isAll=data[0].titles!=null;
-    if(isAll){rows=[['#','Part Number','Amazon Title','Amazon Chars','eBay Title','eBay Chars','Website Title','Website Chars']];data.forEach(function(r,i){var a=r.titles.amazon||'',e=r.titles.ebay||'',w=r.titles.website||'';rows.push([i+1,r.partNumber||'',a,a.length,e,e.length,w,w.length]);});}
-    else{rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});}
+    rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});
   } else {
     rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});
   }
@@ -2841,9 +2850,7 @@ function expXLSX(prefix){
   var data=results[prefix];if(!data||!data.length){alert('No rows to export yet.');return;}
   var rows;
   if(prefix==='t1'){
-    var isAll=data[0].titles!=null;
-    if(isAll){rows=[['#','Part Number','Amazon Title','Amazon Chars','eBay Title','eBay Chars','Website Title','Website Chars']];data.forEach(function(r,i){var a=r.titles.amazon||'',e=r.titles.ebay||'',w=r.titles.website||'';rows.push([i+1,r.partNumber||'',a,a.length,e,e.length,w,w.length]);});}
-    else{rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});}
+    rows=[['#','Part Number','Title','Channel','Characters']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.title||'',r.channel||'',(r.title||'').length]);});
   } else {
     rows=[['#','Part Number','HTML']];data.forEach(function(r,i){rows.push([i+1,r.partNumber||'',r.html||'']);});
   }
@@ -3860,6 +3867,7 @@ function buildMasterRecordPrompt(excelSpecsText,pdfItemText,pdfFamilyText,confli
   '- technical_specs: every measurable/nameable spec present in either source. Deduplicate if both sources say the same thing; if they conflict, include both as described above.\n'+
   '- features: short phrases describing what the product IS or HAS.\n'+
   '- applications: short phrases describing what it\'s used for - pull these from "Recommended Uses"/"Applications"-style fields in either source, not just catalog prose.\n'+
+  '- The "general to this item\'s product line" catalog data may describe a GROUP of different item types shown together under one shared heading (for example, one heading covering several pilot drills AND a separate extension, or several arbors AND an adaptor). Only pull a spec, feature, or product-form claim from that family text if it is actually consistent with what the CATALOG DATA - specific to this item (or the spec sheet) says this exact item is. Never let the family text override, dilute, or contradict the item\'s own specific data - e.g. do not describe an item as an "Extension" (or give it an extension\'s length) if its own specific text describes it as a pilot drill, and do not drop an item\'s own stated form (e.g. "Extension") in favor of a generic phrase copied from the shared family heading just because that heading mentions it.\n'+
   '- If genuinely no data exists for one of the three fields, use an empty object/array for it rather than guessing.\n'+
   '- Respond with ONLY the JSON object. No markdown, no explanation, no code fences.';
 }
@@ -4226,14 +4234,33 @@ async function runQACheck(){
     var generatedText=generatedParts.filter(Boolean).join('\n');
     if(!generatedText)continue;
     var rec=masterRecords[it.baseKey];
+    var srcRow=null;
+    var pool=mergedForFileData.length?mergedForFileData:(fileData||[]);
+    pool.forEach(function(r){if(!srcRow&&baseItemKey(r['Part Number'])===it.baseKey)srcRow=r;});
+    // Round 34: previously this only sent technical_specs/features/applications
+    // (or raw Key Specs/Additional Info) as "source data" to the unsupported-
+    // claims checker - it never included Part Number, Brand, or Product Type,
+    // even though every generator (titles, highlights, etc.) legitimately has
+    // and uses those fields via getPromptData(). That mismatch produced false
+    // "not in source data" flags on the brand name, model number, and
+    // category/material terms (e.g. "Bi-Metal", "Pro Pack") that live in
+    // Product Type rather than raw catalog prose. Now the checker is given the
+    // same identifying fields the generators were, so it only flags claims
+    // genuinely absent from everything the content was allowed to be built from.
+    var idParts=[];
+    if(it.partNumber)idParts.push('Part Number: '+it.partNumber);
+    var brandVal=srcRow?getBrand(srcRow,''):'';
+    if(brandVal)idParts.push('Brand: '+brandVal);
+    var typeVal=srcRow?String(srcRow['Product Type']||srcRow['product type']||'').trim():'';
+    if(typeVal)idParts.push('Product Type/Category: '+typeVal);
+    var idText=idParts.join('. ');
     var sourceText='';
     if(rec){
-      sourceText=formatMasterRecordText(rec);
+      sourceText=[idText,formatMasterRecordText(rec)].filter(Boolean).join('. ');
+    } else if(srcRow){
+      sourceText=[idText,[srcRow['Key Specs'],srcRow['Additional Info 1'],srcRow['Additional Info 2']].filter(Boolean).join('. ')].filter(Boolean).join('. ');
     } else {
-      var srcRow=null;
-      var pool=mergedForFileData.length?mergedForFileData:(fileData||[]);
-      pool.forEach(function(r){if(!srcRow&&baseItemKey(r['Part Number'])===it.baseKey)srcRow=r;});
-      if(srcRow)sourceText=[srcRow['Key Specs'],srcRow['Additional Info 1'],srcRow['Additional Info 2']].filter(Boolean).join('. ');
+      sourceText=idText;
     }
     try{
       var resp=await apiCallRetry(buildQAPrompt(generatedText,sourceText),600);
