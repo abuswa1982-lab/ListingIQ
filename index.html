@@ -65,6 +65,7 @@ main{max-width:980px;margin:0 auto;padding:1.5rem;}
 .field select:focus,.field input:focus{outline:none;border-color:var(--gold);background:#fff;}
 .field select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239e9c93' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;background-color:var(--s2);}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.two-col .field label{min-height:16px;display:flex;align-items:center;}
 .btn{padding:11px;border:none;border-radius:var(--r);font-size:14px;font-family:Georgia,serif;cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;}
 .btn-navy{background:var(--navy);color:#fff;}
 .btn-navy:hover{background:var(--navy2);}
@@ -137,6 +138,22 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 .resilience-note{font-size:11px;color:var(--info);font-family:monospace;padding:8px 12px;background:var(--info-bg);border-left:2px solid var(--info);border-radius:4px;line-height:1.5;margin-bottom:8px;margin-top:8px;}
 .catrule-row{display:flex;align-items:center;gap:8px;margin-top:6px;margin-bottom:2px;font-size:12px;color:var(--muted);font-family:monospace;}
 .catrule-row input[type=checkbox]{width:15px;height:15px;cursor:pointer;}
+/* Round 37: every standing explanatory block (resilience-note, variant-note,
+   checkbox captions) was a full paragraph always on screen - Ahmed asked for
+   these condensed to one short line each, with a small (i) that pops the
+   full original text instead of deleting it. .info-full holds that original
+   text, hidden, as the very next sibling of its .info-ic trigger button -
+   showInfoPopup() reads it from there, so there's nothing to keep in sync
+   in JS and the full wording survives verbatim, word for word. */
+.info-ic{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--border2);color:var(--muted);font-size:10px;font-weight:bold;font-style:italic;cursor:pointer;margin-left:5px;vertical-align:middle;border:none;line-height:1;padding:0;flex:none;}
+.info-ic:hover{background:var(--info);color:#fff;}
+.info-full{display:none;}
+#info-popover{position:fixed;display:none;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:var(--r);box-shadow:0 6px 20px rgba(0,0,0,.18);padding:10px 28px 10px 12px;font-size:11.5px;line-height:1.55;font-family:monospace;z-index:9999;}
+#info-popover.on{display:block;}
+#info-popover code{background:var(--s2);padding:1px 4px;border-radius:3px;}
+.info-pop-close{position:absolute;top:4px;right:6px;cursor:pointer;color:var(--faint);font-size:13px;border:none;background:none;padding:2px 5px;line-height:1;}
+.info-pop-close:hover{color:var(--text);}
+.lbl-line{display:inline-flex;align-items:center;}
 .catrule-link{background:none;border:none;color:var(--info);font-family:monospace;font-size:11px;text-decoration:underline;cursor:pointer;padding:0;}
 .catrule-link:hover{color:var(--navy);}
 .catov-overlay{display:none;position:fixed;inset:0;background:rgba(20,18,12,0.55);z-index:500;align-items:flex-start;justify-content:center;padding:3vh 16px;overflow-y:auto;}
@@ -206,7 +223,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     <div class="file-status" id="file-status"></div>
     <div class="field" style="display:flex;align-items:center;gap:8px;margin-top:10px;">
       <input type="checkbox" id="reuse-variants" checked style="width:auto;">
-      <label for="reuse-variants" style="margin:0;">Reuse content for pack-size variants (applies to Product Name, Highlights, Description, HTML Table) — e.g. <code>40610-5</code> and <code>40610-50</code> are treated as the same product in different pack quantities, so content is generated once and copied to every matching variant instead of being regenerated from scratch.</label>
+      <label for="reuse-variants" style="margin:0;" class="lbl-line">Reuse content for pack-size variants<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Applies to Product Name, Highlights, Description, HTML Table — e.g. <code>40610-5</code> and <code>40610-50</code> are treated as the same product in different pack quantities, so content is generated once and copied to every matching variant instead of being regenerated from scratch.</span></label>
     </div>
   </div>
   <div class="tabs-wrap">
@@ -220,9 +237,9 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
     <div class="tab-panel active" id="tab-0">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Manufacturers often hand you a thin spec sheet ("see catalog for details") plus a separate PDF catalog with the actual descriptions, features, and applications. This step reads the PDF catalog, matches each row of your spec sheet to its catalog content by item number, and produces a clean merged dataset in the format the rest of ListingIQ expects (Part Number / Brand / Product Type / Key Specs / Additional Info 1-3) — which then feeds Tabs 2-5 exactly like a normal upload.</p>
-        <div class="resilience-note">Only have one of the two files? This tab still helps. Spec sheet but no catalog: skip Step 1 and go straight to Step 2 - it'll still flatten a messy multi-section sheet and clean it up, just without catalog enrichment. Catalog but no spec sheet: upload just the PDF, run Step 1, then use "Build Rows From Catalog Only" instead of Step 2. Already have a clean, single-table sheet? Skip this tab entirely and upload straight into the box at the top of the page - Product Name/Highlights/etc. work exactly as before.</div>
-        <div class="resilience-note">Step 1: upload your raw manufacturer spec sheet in the box at the top of the page (Excel/CSV) — that's the file this tab merges catalog content into. Step 2: upload the manufacturer's PDF catalog below. Nothing here is sent anywhere except to Claude's API using the key you saved above.</div>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Merges a thin spec sheet with a PDF catalog into clean, ready-to-generate data<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Manufacturers often hand you a thin spec sheet ("see catalog for details") plus a separate PDF catalog with the actual descriptions, features, and applications. This step reads the PDF catalog, matches each row of your spec sheet to its catalog content by item number, and produces a clean merged dataset in the format the rest of ListingIQ expects (Part Number / Brand / Product Type / Key Specs / Additional Info 1-3) — which then feeds Tabs 2-5 exactly like a normal upload.</span></p>
+        <div class="resilience-note lbl-line">Only have one file? This tab still works either way.<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Spec sheet but no catalog: skip Step 1 and go straight to Step 2 - it'll still flatten a messy multi-section sheet and clean it up, just without catalog enrichment. Catalog but no spec sheet: upload just the PDF, run Step 1, then use "Build Rows From Catalog Only" instead of Step 2. Already have a clean, single-table sheet? Skip this tab entirely and upload straight into the box at the top of the page - Product Name/Highlights/etc. work exactly as before.</span></div>
+        <div class="resilience-note lbl-line">Step 1: spec sheet (top of page). Step 2: PDF catalog (below).<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Step 1: upload your raw manufacturer spec sheet in the box at the top of the page (Excel/CSV) — that's the file this tab merges catalog content into. Step 2: upload the manufacturer's PDF catalog below. Nothing here is sent anywhere except to Claude's API using the key you saved above.</span></div>
         <div class="field" style="margin-top:1rem;">
           <label>Manufacturer catalog (PDF)</label>
           <div class="upload-zone" id="uz-pdf" onclick="document.getElementById('fi-pdf').click()" ondragover="udragPdf(event,true)" ondragleave="udragPdf(event,false)" ondrop="udropPdf(event)">
@@ -242,23 +259,30 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
         </div>
         <div class="two-col">
           <div class="field">
-            <label>Brand / Manufacturer <span style="color:var(--faint);font-size:10px;">(used for every merged row)</span></label>
+            <label>Brand / Manufacturer<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Used for every merged row.</span></label>
             <input type="text" id="mg-brand" placeholder="e.g. Sterling Saw Blades">
           </div>
           <div class="field">
-            <label>Item/Part Number column in spec sheet <span style="color:var(--faint);font-size:10px;">(optional — auto-detected if blank)</span></label>
+            <label>Item/Part # column<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Optional — auto-detected if left blank. Type the exact header from your spec sheet here if the auto-detected column looks wrong.</span></label>
             <input type="text" id="mg-itemcol" placeholder="e.g. Item - QTY">
           </div>
         </div>
         <div class="field" style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="mg-strip" checked style="width:auto;">
-          <label for="mg-strip" style="margin:0;">Strip trailing pack-size suffix when matching (e.g. "40610-5" and "40610-50" both match catalog item "40610")</label>
+          <label for="mg-strip" style="margin:0;" class="lbl-line">Strip pack-size suffix when matching<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">E.g. "40610-5" and "40610-50" both match catalog item "40610".</span></label>
+        </div>
+        <div class="uz-sub" id="mg-prefilter-box" style="display:none;margin:0.75rem 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
+          <label style="display:flex;align-items:flex-start;gap:8px;margin:0;cursor:pointer;">
+            <input type="checkbox" id="mg-prefilter-skuonly" checked style="margin-top:3px;">
+            <span class="lbl-line"><span id="mg-prefilter-label"></span><button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span id="mg-prefilter-full" class="info-full"></span></span>
+          </label>
         </div>
         <div class="msg" id="mg1-msg"></div>
         <div class="prog-wrap" id="mg1-prog"><div class="prog-track"><div class="prog-fill" id="mg1-pfill"></div></div><div class="prog-lbl" id="mg1-plbl"></div></div>
         <button class="btn btn-navy" id="mg1-gen" onclick="extractCatalog()"><span id="mg1-lbl">1. Extract Catalog Content</span></button>
         <button class="btn btn-stop" id="mg1-stop" onclick="doStop('mg1')">&#9632; Stop</button>
         <button class="btn" id="mg1-retry" onclick="retryFailedPages()" style="display:none;background:#b45309;color:#fff;">Retry Failed Pages</button>
+        <button class="btn" id="mg1-scanskipped" onclick="extractSkippedPrefilterPages()" style="display:none;background:#0f766e;color:#fff;">Extract Skipped Pages Too</button>
         <div class="res-block" id="mg1-res">
           <div class="res-hdr"><div class="res-title">Extracted Catalog Entries</div><div class="res-meta" id="mg1-meta"></div></div>
           <div class="exp-row">
@@ -277,7 +301,25 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           <div class="tbl-wrap"><table><thead><tr><th>Part Number</th><th>Matched?</th><th>Product Type</th><th>Key Specs</th><th>Additional Info 1</th></tr></thead><tbody id="mg2-tbody"></tbody></table></div>
         </div>
         <div class="res-block" id="mg-validation"></div>
-        <p style="font-size:13px;color:var(--muted);margin:1.25rem 0 0.5rem;font-family:monospace;">Optional but recommended: combine each item's spec-sheet data and catalog data into one clean, verified record before generating listing content. This is what Product Name/Highlights/Description/HTML Table will use if it exists - one AI call per unique base item (pack-size siblings share one record, same as everywhere else in the app), under the same no-invented-data rule as everything else.</p>
+        <!-- Round 35: when a spec sheet AND a PDF catalog are both used,
+             round 15 adds any catalog item not in the spec sheet as its own
+             ("catalog only") row so it's never silently dropped - but a
+             catalog can easily contain thousands of items versus a spec
+             sheet naming only a few hundred Ahmed actually wants to list.
+             Without a way to exclude those extra items, "Build Master
+             Records" (and everything downstream) defaults to processing
+             the WHOLE catalog, not just what was asked for - expensive and
+             slow for no reason when a real spec sheet was provided. This
+             box only appears when that gap actually exists; checked by
+             default (scope to the spec sheet), one click to include
+             everything found in the catalog too. -->
+        <div class="uz-sub" id="mg-scope-box" style="display:none;margin:0.75rem 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
+          <label style="display:flex;align-items:flex-start;gap:8px;margin:0;cursor:pointer;">
+            <input type="checkbox" id="mg-scope-excelonly" checked style="margin-top:3px;">
+            <span class="lbl-line"><span id="mg-scope-label"></span><button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span id="mg-scope-full" class="info-full"></span></span>
+          </label>
+        </div>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin:1.25rem 0 0.5rem;font-family:monospace;">Optional: combine spec-sheet + catalog data into one verified record first<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Combine each item's spec-sheet data and catalog data into one clean, verified record before generating listing content. This is what Product Name/Highlights/Description/HTML Table will use if it exists - one AI call per unique base item (pack-size siblings share one record, same as everywhere else in the app), under the same no-invented-data rule as everything else.</span></p>
         <div class="msg" id="mg3-msg"></div>
         <div class="prog-wrap" id="mg3-prog"><div class="prog-track"><div class="prog-fill" id="mg3-pfill"></div></div><div class="prog-lbl" id="mg3-plbl"></div></div>
         <button class="btn btn-gold" id="mg3-gen" onclick="buildMasterRecords()" disabled><span id="mg3-lbl">3. Build Master Records</span></button>
@@ -320,15 +362,15 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
             <input type="text" id="t1-brand" placeholder="e.g. Wright Tool">
           </div>
         </div>
-        <div class="variant-note">Size is stripped from generated titles, highlights, and specs tables so the output covers all sizes of the product. Color, length, gauge, voltage, and other attributes are kept.</div>
-        <div class="resilience-note">Resume-on-failure: if a row fails, the run stops there with completed rows intact. Click Resume to retry that row and continue. Auto-retries each row once on transient errors.</div>
+        <div class="variant-note lbl-line">Size is excluded from generated content<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Size is stripped from generated titles, highlights, and specs tables so the output covers all sizes of the product. Color, length, gauge, voltage, and other attributes are kept.</span></div>
+        <div class="resilience-note lbl-line">Resume-on-failure<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">If a row fails, the run stops there with completed rows intact. Click Resume to retry that row and continue. Auto-retries each row once on transient errors.</span></div>
         <!-- Round 25: category rules - a saved library of per-category title
              patterns, built up by reviewing and approving (or correcting) one
              example title per category instead of trying to hand-encode what
              a "correct" title looks like for every possible product category.
              See buildCategoryReviewQueue()/renderCategoryReview() below. -->
-        <div class="resilience-note" style="background:var(--s2);color:var(--muted);border-left-color:var(--gold);">Category rules: before generating, similar items are grouped by their Product Type. New or uncertain categories are shown to you for a quick approve/correct - once approved, the same pattern is reused automatically for that category on every future run. <button type="button" class="catrule-link" onclick="openCategoryManager()">Manage saved categories</button></div>
-        <div class="catrule-row"><input type="checkbox" id="t1-catreview-all" onchange="setReviewAllSetting(this.checked)"><label for="t1-catreview-all">Show me every category for review (including ones already saved) - turn this off once you trust the saved patterns</label></div>
+        <div class="resilience-note lbl-line" style="background:var(--s2);color:var(--muted);border-left-color:var(--gold);">Category rules, reused per product type<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Before generating, similar items are grouped by their Product Type. New or uncertain categories are shown to you for a quick approve/correct - once approved, the same pattern is reused automatically for that category on every future run.</span> <button type="button" class="catrule-link" onclick="openCategoryManager()">Manage saved categories</button></div>
+        <div class="catrule-row"><input type="checkbox" id="t1-catreview-all" onchange="setReviewAllSetting(this.checked)"><label for="t1-catreview-all" class="lbl-line">Review every category<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Shows every category for review, including ones already saved. Turn this off once you trust the saved patterns.</span></label></div>
         <div class="msg" id="t1-msg"></div>
         <div class="prog-wrap" id="t1-prog"><div class="prog-track"><div class="prog-fill" id="t1-pfill"></div></div><div class="prog-lbl" id="t1-plbl"></div></div>
         <button class="btn btn-navy" id="t1-gen" onclick="runTab1(false)"><span id="t1-lbl">Generate Product Names</span></button>
@@ -363,8 +405,8 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
     <div class="tab-panel" id="tab-2">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates 4-5 attribute-focused bullet points per product. Size is excluded.</p>
-        <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Generates attribute-focused bullet points<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Generates 4-5 attribute-focused bullet points per product. Size is excluded.</span></p>
+        <div class="resilience-note lbl-line">Resume-on-failure<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Completed rows stay safe. Click Resume to continue from the failed row.</span></div>
         <div class="msg" id="t2-msg"></div>
         <div class="prog-wrap" id="t2-prog"><div class="prog-track"><div class="prog-fill" id="t2-pfill"></div></div><div class="prog-lbl" id="t2-plbl"></div></div>
         <button class="btn btn-navy" id="t2-gen" onclick="runTab2(false)"><span id="t2-lbl">Generate Highlights</span></button>
@@ -382,8 +424,8 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
     <div class="tab-panel" id="tab-3">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts Additional Info 1+2+3 into HTML. Preserves every word exactly.</p>
-        <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Converts spec/catalog text into HTML<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Converts Additional Info 1+2+3 into HTML. Preserves every word exactly.</span></p>
+        <div class="resilience-note lbl-line">Resume-on-failure<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Completed rows stay safe. Click Resume to continue from the failed row.</span></div>
         <div class="msg" id="t3-msg"></div>
         <div class="prog-wrap" id="t3-prog"><div class="prog-track"><div class="prog-fill" id="t3-pfill"></div></div><div class="prog-lbl" id="t3-plbl"></div></div>
         <button class="btn btn-navy" id="t3-gen" onclick="runTab3(false)"><span id="t3-lbl">Generate Descriptions</span></button>
@@ -401,8 +443,8 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
     <div class="tab-panel" id="tab-4">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Identifies key attributes and builds an HTML specs table. Size is excluded.</p>
-        <div class="resilience-note">Resume-on-failure: completed rows stay safe. Click Resume to continue from the failed row.</div>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Builds an HTML specs table from key attributes<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Identifies key attributes and builds an HTML specs table. Size is excluded.</span></p>
+        <div class="resilience-note lbl-line">Resume-on-failure<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Completed rows stay safe. Click Resume to continue from the failed row.</span></div>
         <div class="msg" id="t4-msg"></div>
         <div class="prog-wrap" id="t4-prog"><div class="prog-track"><div class="prog-fill" id="t4-pfill"></div></div><div class="prog-lbl" id="t4-plbl"></div></div>
         <button class="btn btn-navy" id="t4-gen" onclick="runTab4(false)"><span id="t4-lbl">Generate HTML Tables</span></button>
@@ -420,11 +462,11 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
     <div class="tab-panel" id="tab-5">
       <div class="tab-body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates all generated outputs into one Excel file. Structured Data (schema.org JSON-LD, for search engines to read) is built automatically from your merged data with no AI call and no generate step needed - it's always included here.</p>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates everything into one Excel file<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Consolidates all generated outputs into one Excel file. Structured Data (schema.org JSON-LD, for search engines to read) is built automatically from your merged data with no AI call and no generate step needed - it's always included here.</span></p>
         <div class="consol-grid" id="consol-grid"></div>
         <div class="msg" id="t5-msg"></div>
         <button class="btn btn-gold" onclick="runConsolidate()">Export Consolidated Excel</button>
-        <p style="font-size:13px;color:var(--muted);margin:1.5rem 0 0.5rem;font-family:monospace;">Optional: check what was generated above for problems before you use it - duplicate content between different items, items with no real source data behind them, and (one AI check per item) any claim in the generated text that isn't actually backed by the verified data.</p>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin:1.5rem 0 0.5rem;font-family:monospace;">Optional: check generated content for problems before you use it<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Checks what was generated above for problems - duplicate content between different items, items with no real source data behind them, and (one AI check per item) any claim in the generated text that isn't actually backed by the verified data.</span></p>
         <div class="msg" id="qa-msg"></div>
         <button class="btn btn-navy" id="qa-gen" onclick="runQACheck()">Run QA Check</button>
         <div class="res-block" id="qa-res">
@@ -1680,6 +1722,9 @@ function clearAll(){
   var pr=document.getElementById('mg-pagerange');if(pr)pr.value='';
   var prh=document.getElementById('mg-pagerange-hint');if(prh)prh.textContent='Upload a PDF above to see its page count.';
   showRetryFailedBtn(false);
+  skippedPrefilterPages=[];
+  showSkippedPrefilterBtn(false);
+  updateExtractPrefilterToggle();
   var qr=document.getElementById('qa-res');if(qr)qr.classList.remove('on');
 }
 function udrag(e,on){e.preventDefault();document.getElementById('uz').classList.toggle('drag',on);}
@@ -1815,6 +1860,9 @@ function loadFile(f){
       document.getElementById('uz-text').textContent='File loaded';
       var sectionNote=parsed.sections>1?' - detected '+parsed.sections+' product-family sections in this sheet, each tagged in a "Section" column':'';
       document.getElementById('file-status').textContent='Columns: '+Object.keys(data[0]).join(', ')+sectionNote;
+      skippedPrefilterPages=[];
+      showSkippedPrefilterBtn(false);
+      updateExtractPrefilterToggle();
     }catch(err){document.getElementById('file-status').textContent='Error: '+err.message;}
   };
   reader.readAsArrayBuffer(f);
@@ -1832,6 +1880,63 @@ function setProg(t,pct,lbl){
   document.getElementById(t+'-plbl').textContent=lbl;
   document.getElementById(t+'-prog').classList.toggle('on',pct>0&&pct<100);
 }
+// Round 37: one shared popover for every condensed "(i)" info icon across
+// the app. showInfoPopup(btn) always reads from btn.nextElementSibling,
+// which must be the .info-full element holding that control's full,
+// un-shortened explanation (verbatim, including any inline markup like
+// <code>) - so the full wording never needs to be duplicated or kept in
+// sync in JS. Clicking the same icon again closes it (toggle); clicking
+// anywhere else, pressing Escape, or clicking the popover's own close
+// button also closes it.
+var infoPopupOpenBtn=null;
+function ensureInfoPopover(){
+  var pop=document.getElementById('info-popover');
+  if(!pop){
+    pop=document.createElement('div');
+    pop.id='info-popover';
+    pop.innerHTML='<button type="button" class="info-pop-close" onclick="hideInfoPopup()">&times;</button><div id="info-popover-body"></div>';
+    document.body.appendChild(pop);
+  }
+  return pop;
+}
+function showInfoPopup(btn){
+  if(infoPopupOpenBtn===btn){hideInfoPopup();return;}
+  var full=btn.nextElementSibling;
+  if(!full||!full.classList.contains('info-full')){hideInfoPopup();return;}
+  var pop=ensureInfoPopover();
+  document.getElementById('info-popover-body').innerHTML=full.innerHTML;
+  infoPopupOpenBtn=btn;
+  var popWidth=Math.min(380,window.innerWidth-24);
+  pop.style.maxWidth=popWidth+'px';
+  pop.style.display='block';
+  var r=btn.getBoundingClientRect();
+  var left=Math.max(12,Math.min(r.left,window.innerWidth-popWidth-12));
+  var popH=pop.offsetHeight;
+  var top=r.bottom+6;
+  if(top+popH>window.innerHeight-12)top=Math.max(12,r.top-popH-6);
+  pop.style.left=left+'px';
+  pop.style.top=top+'px';
+  pop.classList.add('on');
+  setTimeout(function(){
+    document.addEventListener('click',onDocClickCloseInfo,true);
+    document.addEventListener('keydown',onEscCloseInfo);
+  },0);
+}
+function hideInfoPopup(){
+  var pop=document.getElementById('info-popover');
+  if(pop){pop.classList.remove('on');pop.style.display='none';}
+  infoPopupOpenBtn=null;
+  document.removeEventListener('click',onDocClickCloseInfo,true);
+  document.removeEventListener('keydown',onEscCloseInfo);
+}
+function onDocClickCloseInfo(e){
+  var pop=document.getElementById('info-popover');
+  if(!pop)return;
+  if(pop.contains(e.target))return;
+  if(e.target.classList&&e.target.classList.contains('info-ic'))return;
+  hideInfoPopup();
+}
+function onEscCloseInfo(e){if(e.key==='Escape')hideInfoPopup();}
 function getPN(row){return row['Part Number']||row['part number']||row['PartNumber']||row['part_number']||row['SKU']||row['sku']||row['Model']||'';}
 function getBrand(row,ov){return ov||row['Brand']||row['brand']||row['Manufacturer']||row['manufacturer']||row['MFR']||'';}
 // Pack-size variant grouping: "40610-5" and "40610-50" are the same physical
@@ -2907,6 +3012,7 @@ var mergedForFileData = [];  // clean rows: Part Number/Brand/Product Type/Key S
 var mergedPreviewRows = [];  // same rows plus a "matched" flag, for the on-screen table
 var lastPageTexts = {};      // page number -> reconstructed text, cached so a retry doesn't need to re-read the PDF
 var failedChunks = [];       // {pages:[n,...], rangeLabel:'4-6'} for page-chunks whose extraction call failed even after retrying - tracked separately from real "product-line-level" entries so failures are never silently miscounted as normal content
+var skippedPrefilterPages = []; // page numbers deliberately never sent to the AI (round 36) because a free, no-AI text scan found none of the spec sheet's own item numbers on them - distinct from failedChunks, which is pages that WERE attempted and failed
 var lastNumPages = 0;
 var lastPagesToRead = [];
 var lastHadPageRange = false;
@@ -3536,7 +3642,8 @@ function buildExtractionMsg(){
   var famOnly=realEntries.filter(function(e){return!e.item_no;}).length;
   var tied=realEntries.length-famOnly;
   var pageNote=lastHadPageRange?' from '+lastPagesToRead.length+' selected page(s) of '+lastNumPages:' from all '+lastNumPages+' pages';
-  var base=realEntries.length+' catalog entries extracted'+pageNote+' ('+tied+' tied to an item number, '+famOnly+' product-line-level)';
+  var skipNote=skippedPrefilterPages.length?' - '+skippedPrefilterPages.length+' page(s) skipped (no spec-sheet item number found on them; click "Extract Skipped Pages Too" to scan them anyway)':'';
+  var base=realEntries.length+' catalog entries extracted'+pageNote+skipNote+' ('+tied+' tied to an item number, '+famOnly+' product-line-level)';
   if(failedChunks.length){
     var ranges=failedChunks.map(function(f){return f.rangeLabel;}).join(', ');
     return{text:base+'. ⚠ '+failedChunks.length+' page-range(s) failed to extract even after an automatic retry and single-page split (pages '+ranges+') - not a real absence of content. Click "Retry Failed Pages" before merging, so items on those pages aren\'t missed.',cls:'warn'};
@@ -3552,9 +3659,10 @@ async function extractCatalog(){
   if(!pdfFileObj){setMsg('mg1-msg','Please upload a catalog PDF first.','error');return;}
   if(!getKey()){setMsg('mg1-msg','Please save your API key at the top of the page first.','error');return;}
   if(typeof pdfjsLib==='undefined'){setMsg('mg1-msg','PDF reader library failed to load. Check your connection and reload the page.','error');return;}
-  catalogEntries=[];itemIndex={};familyIndex={};lastPageTexts={};failedChunks=[];
+  catalogEntries=[];itemIndex={};familyIndex={};lastPageTexts={};failedChunks=[];skippedPrefilterPages=[];
   renderCatalogPreview();
   showRetryFailedBtn(false);
+  showSkippedPrefilterBtn(false);
   var btn=document.getElementById('mg1-gen');
   btn.disabled=true;stops.mg1=false;showStop('mg1',true);
   try{
@@ -3570,6 +3678,41 @@ async function extractCatalog(){
       var page=await pdf.getPage(pNum);
       var tc=await page.getTextContent();
       lastPageTexts[pNum]=layoutPageText(tc);
+    }
+    // Round 36: with a spec sheet loaded, a free (no-AI) text scan over the
+    // page text just read above decides which pages are even worth sending
+    // to the AI - directly answering Ahmed's "it cannot just scan?" ask.
+    // Falls back to scanning every selected page (pagesToExtract===pagesToRead)
+    // whenever there's no spec sheet, the checkbox is unchecked, or the
+    // target-item scan somehow matches zero pages (a wrong/undetected item
+    // column would otherwise silently extract nothing - scanning everything
+    // is the safer failure mode than that).
+    var pagesToExtract=pagesToRead;
+    var prefilterEl=document.getElementById('mg-prefilter-skuonly');
+    var prefilterActive=!!(prefilterEl&&prefilterEl.checked);
+    var targetInfo=prefilterActive?buildTargetItemKeys():null;
+    if(targetInfo&&targetInfo.keys.length){
+      var matchSet={};
+      pagesToRead.forEach(function(pNum){
+        if(pageMatchesTargets(lastPageTexts[pNum],targetInfo.keys))matchSet[pNum]=true;
+      });
+      // Safety margin: also extract the page immediately before/after any
+      // matched page, in case an item's own text continues onto a
+      // neighboring page without repeating its item number there - the
+      // exact cross-page-boundary case Ahmed asked about before agreeing
+      // to this.
+      var expanded={};
+      pagesToRead.forEach(function(pNum,idx){
+        if(!matchSet[pNum])return;
+        expanded[pNum]=true;
+        if(idx>0)expanded[pagesToRead[idx-1]]=true;
+        if(idx<pagesToRead.length-1)expanded[pagesToRead[idx+1]]=true;
+      });
+      var matchedAny=Object.keys(expanded).length>0;
+      if(matchedAny){
+        pagesToExtract=pagesToRead.filter(function(p){return expanded[p];});
+        skippedPrefilterPages=pagesToRead.filter(function(p){return!expanded[p];});
+      }
     }
     // Round 17: one page per request, always - not "2 pages, split to 1 on
     // failure" anymore. That 2-page batching (rounds 12-16) was meant purely
@@ -3615,21 +3758,21 @@ async function extractCatalog(){
     // needing to generate a huge number of separate output records, which
     // is the actual thing that runs out of budget, not the input size.
     var SUBSPLIT_ITEM_THRESHOLD=50;
-    for(var c=0;c<pagesToRead.length;c+=CHUNK){
+    for(var c=0;c<pagesToExtract.length;c+=CHUNK){
       if(stops.mg1){
         setMsg('mg1-msg','Stopped. '+catalogEntries.length+' entries extracted so far - you can merge with what was found, or run again to redo from the start.','warn');
         break;
       }
-      var chunkPages=pagesToRead.slice(c,c+CHUNK);
+      var chunkPages=pagesToExtract.slice(c,c+CHUNK);
       var rangeLabel=chunkPages.length>1?(chunkPages[0]+'-'+chunkPages[chunkPages.length-1]):String(chunkPages[0]);
-      setProg('mg1',40+Math.round((c/pagesToRead.length)*55),'Extracting pages '+rangeLabel+' ('+Math.min(c+CHUNK,pagesToRead.length)+' of '+pagesToRead.length+' selected)');
-      await extractPageWithAutoSplit(chunkPages,rangeLabel,pagesToRead.length);
+      setProg('mg1',40+Math.round((c/pagesToExtract.length)*55),'Extracting pages '+rangeLabel+' ('+Math.min(c+CHUNK,pagesToExtract.length)+' of '+pagesToExtract.length+' selected)');
+      await extractPageWithAutoSplit(chunkPages,rangeLabel,pagesToExtract.length);
       // Small pacing gap between chunk calls (not after the last one) - gives
       // the API a breath between back-to-back requests instead of firing them
       // as fast as each response returns, which helps avoid tripping
       // per-minute rate limits on accounts with tighter limits or when
       // something else is sharing the same API key concurrently.
-      if(c+CHUNK<pagesToRead.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
+      if(c+CHUNK<pagesToExtract.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
     }
     buildCatalogIndices();
     setProg('mg1',100,'');
@@ -3638,6 +3781,7 @@ async function extractCatalog(){
       var summary=buildExtractionMsg();
       setMsg('mg1-msg',summary.text,summary.cls);
       showRetryFailedBtn(failedChunks.length>0);
+      showSkippedPrefilterBtn(skippedPrefilterPages.length>0);
     }
   }catch(err){
     var extra=/worker/i.test(err.message)?' This looks like the PDF reader failed to set up in whatever window this page is running in. If you\'re viewing this inside an embedded preview, try opening the actual deployed page (your GitHub Pages URL) in a normal browser tab instead.':'';
@@ -3720,6 +3864,49 @@ async function retryFailedPages(){
   showStop('mg1',false);
   renderCatalogPreview();
 }
+function showSkippedPrefilterBtn(show){
+  var b=document.getElementById('mg1-scanskipped');
+  if(b)b.style.display=show?'inline-block':'none';
+}
+// Round 36: an escape hatch for the Step-1 prefilter above - lets Ahmed
+// top up coverage after the fact (e.g. after noticing a skipped page
+// mattered) without re-running the whole catalog. Reuses the already-
+// cached lastPageTexts, same as retryFailedPages() - no PDF re-read.
+async function extractSkippedPrefilterPages(){
+  if(!skippedPrefilterPages.length)return;
+  var toScan=skippedPrefilterPages.slice();
+  skippedPrefilterPages=[];
+  showSkippedPrefilterBtn(false);
+  setMsg('mg1-msg','Scanning '+toScan.length+' previously-skipped page(s) with no spec-sheet match...','info');
+  var btn=document.getElementById('mg1-gen');
+  btn.disabled=true;stops.mg1=false;showStop('mg1',true);
+  for(var i=0;i<toScan.length;i++){
+    if(stops.mg1){
+      skippedPrefilterPages=toScan.slice(i);
+      setMsg('mg1-msg','Stopped. '+skippedPrefilterPages.length+' skipped page(s) still unscanned.','warn');
+      break;
+    }
+    var pNum=toScan[i];
+    setProg('mg1',Math.round((i/toScan.length)*95),'Scanning page '+pNum+' ('+(i+1)+' of '+toScan.length+')');
+    document.getElementById('mg1-lbl').innerHTML='<span class="spinner"></span>Scanning page '+pNum;
+    await extractPageWithAutoSplit([pNum],String(pNum),null);
+    renderCatalogPreview();
+    if(i+1<toScan.length&&!stops.mg1)await new Promise(function(r){setTimeout(r,400);});
+  }
+  buildCatalogIndices();
+  setProg('mg1',100,'');
+  setTimeout(function(){setProg('mg1',0,'');},400);
+  if(!stops.mg1){
+    var summary=buildExtractionMsg();
+    setMsg('mg1-msg',summary.text,summary.cls);
+  }
+  showSkippedPrefilterBtn(skippedPrefilterPages.length>0);
+  showRetryFailedBtn(failedChunks.length>0);
+  btn.disabled=false;
+  document.getElementById('mg1-lbl').textContent='1. Extract Catalog Content';
+  showStop('mg1',false);
+  renderCatalogPreview();
+}
 // A field counts as "real spec data" (kept in Key Specs / used for
 // validation) when it isn't the item column, the Section marker, a
 // note/pointer column, a boilerplate-repeated column, a price column (not a
@@ -3734,6 +3921,18 @@ function isRealSpecField(k,itemCol,boilerplateCols){
   if(/note|info|catalog|comment/i.test(k))return false;
   if(/^column\d+$/i.test(k))return false;
   if(/price|cost/i.test(k))return false;
+  // Round 35: Brand/Manufacturer is never a technical spec worth validating
+  // against the catalog's own extracted text, or repeating inside Key Specs
+  // - the merged row's Brand always comes from the single Brand/Manufacturer
+  // field typed once for the whole run (see mergeData()), not from either
+  // source being compared here. Without this, a trivial naming difference
+  // between the spec sheet's own Brand-like column and a brand name the
+  // catalog extraction happened to pick up (e.g. "Alfa" vs. "Alfa USA" -
+  // same brand, just written differently in two places) got flagged as a
+  // hard "Conflict" needing review, over and over, once per row - even
+  // though it's not a real data problem and nothing about it needs
+  // reconciling. Same rationale as the existing price/cost exclusion above.
+  if(/brand|manufacturer|\bmfr\b/i.test(k))return false;
   if(boilerplateCols&&boilerplateCols[k])return false;
   return true;
 }
@@ -3875,10 +4074,16 @@ async function buildMasterRecords(isResume){
   if(!mergedForFileData||!mergedForFileData.length){setMsg('mg3-msg','Run Step 2 (or "Build Rows From Catalog Only") first.','error');return;}
   var btn=document.getElementById('mg3-gen');
   btn.disabled=true;stops.mg3=false;showStop('mg3',true);showResume('mg3',false);
+  // Round 35: the spec-sheet-scope choice is locked at the start of a fresh
+  // run and reused for any Resume of it, same pattern as the round-6
+  // channel lock - so toggling the checkbox mid-run (or between Stop and
+  // Resume) can't shift which rows "item N" refers to partway through.
+  if(!isResume)runState.mg3.scopedExcelOnly=getScopedMergedRows();
+  var sourceRows=runState.mg3.scopedExcelOnly||getScopedMergedRows();
   // One unique base item per record - same pack-size grouping used everywhere else in the app.
   var items=[];
   var seen={};
-  mergedForFileData.forEach(function(row){
+  sourceRows.forEach(function(row){
     var pn=row['Part Number'];
     var bKey=baseItemKey(pn)||pn;
     if(!bKey)return;
@@ -4365,6 +4570,63 @@ function guessItemColumn(sampleRow){
   }
   return null;
 }
+// Round 36: Step 1 (Extract Catalog Content) can skip the AI entirely on
+// PDF pages that don't mention any of the spec sheet's own item numbers -
+// a free, deterministic text search over page text the app already reads
+// before every extraction call, not a judgment call like the Brand-name
+// validation round 35 fixed. Only ever engages when a spec sheet is
+// loaded (fileData) - a PDF-only workflow has no item list to scope
+// against and must keep scanning every page, exactly as before.
+// Builds the target set from the same item/part-number column the merge
+// step (mergeData) already detects, so the two stay consistent. Includes
+// both the raw sheet value AND its pack-size-suffix-stripped base form
+// (baseItemKey) - a sheet row "40610-5" should still match a page that
+// only ever prints the catalog's own bare "40610". Tokens under 3
+// characters are dropped as too short to search for without a flood of
+// false-positive matches on ordinary page text.
+function buildTargetItemKeys(){
+  if(!fileData||!fileData.length)return null;
+  var itemColEl=document.getElementById('mg-itemcol');
+  var itemColInput=itemColEl?itemColEl.value.trim():'';
+  var detectedCol=itemColInput||guessItemColumn(fileData[0])||'';
+  var keys=new Set();
+  var usable=0;
+  fileData.forEach(function(row){
+    var raw=String(detectedCol?(row[detectedCol]||''):(getPN(row)||'')).trim();
+    if(!raw)return;
+    usable++;
+    var up=raw.toUpperCase();
+    if(up.length>=3)keys.add(up);
+    var base=baseItemKey(raw);
+    if(base&&base.length>=3)keys.add(base);
+  });
+  if(!keys.size)return null;
+  return{keys:Array.from(keys),rowCount:usable};
+}
+function pageMatchesTargets(pageText,targetKeysArr){
+  if(!pageText)return false;
+  var up=pageText.toUpperCase();
+  for(var i=0;i<targetKeysArr.length;i++){
+    if(up.indexOf(targetKeysArr[i])!==-1)return true;
+  }
+  return false;
+}
+// Shows/labels the Step-1 extraction prefilter box. Hidden entirely
+// whenever buildTargetItemKeys() finds no usable spec sheet (no file
+// loaded, or no row has anything in the detected item column) - the
+// no-spec-sheet PDF-only workflow Ahmed confirmed should always scan the
+// whole catalog never sees this box at all.
+function updateExtractPrefilterToggle(){
+  var box=document.getElementById('mg-prefilter-box');
+  var lbl=document.getElementById('mg-prefilter-label');
+  var full=document.getElementById('mg-prefilter-full');
+  if(!box||!lbl)return;
+  var target=buildTargetItemKeys();
+  if(!target){box.style.display='none';return;}
+  box.style.display='block';
+  lbl.textContent='Only extract pages matching your spec sheet\'s '+target.rowCount+' item(s)';
+  if(full)full.textContent='Recommended - a free, no-AI text scan decides this; a matched page\'s immediate neighbor is sent too, as a safety margin, and every other page is skipped entirely (no AI call, no cost). Uncheck to scan every page of the PDF regardless.';
+}
 // A column counts as "boilerplate" (excluded from Key Specs) when it repeats
 // the same one or two long values across many rows - e.g. a pointer note like
 // "Additional Information In the catalog" that a manufacturer sheet repeats
@@ -4392,6 +4654,32 @@ function detectBoilerplateColumns(rows){
     }
   });
   return boilerplate;
+}
+// Round 35: shows/hides the "scope to my spec sheet" box and fills in its
+// live counts. Only relevant when mergeData() actually found catalog items
+// beyond what the spec sheet named - buildRowsFromCatalogOnly() (no spec
+// sheet at all) never has this distinction, so the box stays hidden there.
+function updateScopeToggle(catalogOnlyCount,excelRowCount){
+  var box=document.getElementById('mg-scope-box');
+  var lbl=document.getElementById('mg-scope-label');
+  var full=document.getElementById('mg-scope-full');
+  if(!box||!lbl)return;
+  if(!catalogOnlyCount){box.style.display='none';return;}
+  box.style.display='block';
+  lbl.textContent='Build/generate only your '+excelRowCount+' spec-sheet item(s)';
+  if(full)full.textContent='Recommended - skips the other '+catalogOnlyCount+' item(s) found only in the catalog PDF, to save API time/cost. Uncheck to include all '+(excelRowCount+catalogOnlyCount)+' item(s) instead.';
+}
+// Applies the scope toggle (when shown) to mergedForFileData - used by both
+// "Build Master Records" and "Use This Data" so the choice is consistent
+// across the whole rest of the pipeline, not just one step. Falls back to
+// the full set if the filter would otherwise leave nothing to work with.
+function getScopedMergedRows(){
+  var cb=document.getElementById('mg-scope-excelonly');
+  if(cb&&cb.checked){
+    var filtered=mergedForFileData.filter(function(r){return !r.catalogOnly;});
+    if(filtered.length)return filtered;
+  }
+  return mergedForFileData;
 }
 function mergeData(){
   setMsg('mg2-msg','','');
@@ -4501,7 +4789,8 @@ function mergeData(){
       'Key Specs':'',
       'Additional Info 1':ownContent,
       'Additional Info 2':famExtra,
-      'Additional Info 3':''
+      'Additional Info 3':'',
+      catalogOnly:true
     };
     mergedForFileData.push(clean);
     mergedPreviewRows.push({partNumber:e.item_no,matched:true,catalogOnly:true,productType:clean['Product Type'],keySpecs:'',ai1:ownContent||famExtra});
@@ -4522,6 +4811,7 @@ function mergeData(){
   } else {
     setMsg('mg2-msg',matchedCount+' of '+fileData.length+' rows ('+pct+'%) matched to catalog content.'+colNote+' Unmatched rows are still included using whatever was in the spec sheet - review those before generating listings for them.'+flagNote+catalogOnlyNote,(matchedCount===fileData.length&&!validationFlags.length&&!catalogOnlyAdded)?'success':'warn');
   }
+  updateScopeToggle(catalogOnlyAdded,fileData.length);
   updateMg3Gate();
 }
 function buildRowsFromCatalogOnly(){
@@ -4556,11 +4846,13 @@ function buildRowsFromCatalogOnly(){
   });
   renderMergePreview();
   setMsg('mg2-msg',mergedForFileData.length+' product row(s) built directly from the catalog (no spec sheet used). These have no dimensional Key Specs since that data usually lives in the spec sheet, not the catalog text - review before generating listings.','success');
+  updateScopeToggle(0,mergedForFileData.length); // no spec sheet at all here - nothing to scope against, box stays hidden
   updateMg3Gate();
 }
 function useMergedData(){
   if(!mergedForFileData.length){alert('Run the merge first.');return;}
-  fileData=mergedForFileData;
+  var scoped=getScopedMergedRows();
+  fileData=scoped;
   results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
   t1Failures=[];
   showT1RetryBtn(false);
@@ -4568,7 +4860,7 @@ function useMergedData(){
   ['t1','t2','t3','t4'].forEach(function(t){var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');showResume(t,false);});
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
   document.getElementById('uz').classList.add('loaded');
-  document.getElementById('uz-fname').textContent='Merged from catalog - '+fileData.length+' row(s)';
+  document.getElementById('uz-fname').textContent='Merged from catalog - '+fileData.length+' row(s)'+(scoped.length<mergedForFileData.length?' (scoped - '+(mergedForFileData.length-scoped.length)+' catalog-only item(s) excluded)':'');
   document.getElementById('uz-text').textContent='File loaded';
   document.getElementById('file-status').textContent='Columns: '+Object.keys(fileData[0]).join(', ');
   updateConsolGrid();
