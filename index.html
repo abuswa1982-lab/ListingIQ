@@ -2224,9 +2224,30 @@ async function apiCallRetry(prompt, maxTok, maxAttempts, timeoutMs, stopCheckFn)
     if(stopCheckFn&&stopCheckFn())throw new Error('Stopped by user.');
     try {
       var result=await apiCall(prompt,maxTok,timeoutMs);
-      if(result&&result.trim()!=='')return result;
-      var diag=lastEmptyResponseDiag?(' [diagnostic: stop_reason='+lastEmptyResponseDiag.stopReason+', response id='+lastEmptyResponseDiag.id+', content block types='+JSON.stringify(lastEmptyResponseDiag.contentBlockTypes)+'] - see browser console for the full raw response.'):'';
-      lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.'+diag);
+      if(result&&result.trim()!==''){
+        // Round 39: a response can come back NON-empty but still genuinely
+        // cut off mid-answer (stop_reason max_tokens) - round 26 already
+        // captured this in lastEmptyResponseDiag for diagnostics, but nothing
+        // actually treated it as a failure: ANY non-empty text was accepted
+        // as success and saved as-is. That meant a truncated response (e.g.
+        // a Description that stops mid-sentence, or even mid-HTML-tag) was
+        // silently kept with no visible error anywhere - confirmed on real
+        // data (BBML74207/BBML74208 in Ahmed's own export: one cuts off
+        // after a single sentence, the other mid-closing-tag). Now treated
+        // the same as an empty response: retried, and only given up on after
+        // exhausting the full retry budget - so a genuine cutoff either gets
+        // a clean retry that completes, or surfaces as a visible failure
+        // instead of silently saving partial content.
+        if(lastEmptyResponseDiag&&lastEmptyResponseDiag.stopReason==='max_tokens'){
+          var tdiag=' [diagnostic: stop_reason=max_tokens, response id='+lastEmptyResponseDiag.id+'] - see browser console for the full raw response.';
+          lastErr=new Error('The API response was cut off before finishing (ran out of token budget mid-answer, so the saved text would be incomplete) - can be caused by an unusually long/complex item for the current budget, or a transient issue.'+tdiag);
+        } else {
+          return result;
+        }
+      } else {
+        var diag=lastEmptyResponseDiag?(' [diagnostic: stop_reason='+lastEmptyResponseDiag.stopReason+', response id='+lastEmptyResponseDiag.id+', content block types='+JSON.stringify(lastEmptyResponseDiag.contentBlockTypes)+'] - see browser console for the full raw response.'):'';
+        lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.'+diag);
+      }
     } catch(err){
       lastErr=err;
       if(err.status&&NON_RETRYABLE_STATUS[err.status])throw err;
@@ -2729,7 +2750,12 @@ async function runTab3(isResume){
           if(!rawDesc)rawDesc=row['Key Specs']||row['key specs']||row['specs']||JSON.stringify(row);
           prompt='You are an HTML formatter for product listings.\n\nYour ONLY job is to convert the raw description text below into clean HTML.\n\nSTRICT RULES:\n- Preserve EVERY word exactly as written. Do not add, remove, reword, summarize, or rephrase anything.\n- Do not make assumptions. Do not improve the copy. Do not remove marketing language.\n- Convert the existing structure to HTML only:\n  * Paragraphs become <p> tags\n  * Bullet lists become <ul><li> items\n  * Section headers like Features: or Instructions: become <p><strong>Header:</strong></p>\n  * Bold or emphasized words use <strong> tags\n- Output valid HTML only. No preamble, no explanation, no markdown, no extra tags outside the content.\n- The words in your output must be identical to the words in the input.\n\nRAW DESCRIPTION:\n'+rawDesc+'\n\nReturn the HTML-formatted version of this text with zero content changes.';
         }
-        var rhtml=await apiCallRetry(prompt,800,5,90000,function(){return stops.t3;});
+        // Round 39: 800 tokens was cutting Description off mid-answer on a
+        // real, non-trivial fraction of items (confirmed on real data - see
+        // the apiCallRetry note above) - raised to match the budget already
+        // proven out for Product Name and Build Master Records, which
+        // generate comparably long content.
+        var rhtml=await apiCallRetry(prompt,4000,5,90000,function(){return stops.t3;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry3={partNumber:pn,html:rhtml,row:row};
         results.t3.push(entry3);
