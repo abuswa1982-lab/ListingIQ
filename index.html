@@ -2167,8 +2167,9 @@ async function apiCall(prompt,maxTok,timeoutMs){
   if(!res.ok){var e=await res.json();var em=new Error(e.error&&e.error.message?e.error.message:'API error '+res.status);em.status=res.status;throw em;}
   var d=await res.json();
   var text=d.content.map(function(i){return i.text||'';}).join('').trim();
+  var thisDiag=null;
   if(!text){
-    lastEmptyResponseDiag={stopReason:d.stop_reason||'(none)',id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
+    thisDiag={stopReason:d.stop_reason||'(none)',id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
     console.warn('[ListingIQ] Empty-text API response - full raw body:',d);
   }else if(d.stop_reason==='max_tokens'){
     // Round 26: a response can also come back non-empty but still cut off
@@ -2178,12 +2179,25 @@ async function apiCall(prompt,maxTok,timeoutMs){
     // capturing the diagnostic here too means that detector can report the
     // real stop_reason instead of just "cut off, cause unknown" - same
     // "no dev tools needed" goal as the empty-response diagnostic above.
-    lastEmptyResponseDiag={stopReason:d.stop_reason,id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
+    thisDiag={stopReason:d.stop_reason,id:d.id||'(none)',model:d.model||'(none)',contentBlockTypes:Array.isArray(d.content)?d.content.map(function(i){return i.type;}):[],usage:d.usage||null};
     console.warn('[ListingIQ] Response hit max_tokens (may be truncated) - full raw body:',d);
-  }else{
-    lastEmptyResponseDiag=null;
   }
-  return text;
+  // Round 39b: lastEmptyResponseDiag is kept updated (some callers, like the
+  // extraction chunk-split path, still read it directly for an informational
+  // message after they've already decided independently that a chunk
+  // failed). But round 39's NEW control-flow use of this value inside
+  // apiCallRetry - "was THIS specific response truncated, yes or no" -
+  // cannot safely read a shared global: if two tabs' generate loops happen
+  // to be running at the same time (e.g. Ahmed had Highlights still
+  // finishing while Description started), one call's result can overwrite
+  // this global before the other call gets a chance to check it, silently
+  // defeating the whole truncation check. Confirmed as the real cause of
+  // truncated Descriptions still slipping through in round 39 testing even
+  // with the retry-detection logic in place. Returning the diagnostic
+  // directly, tied to THIS call's own response, removes that race entirely -
+  // apiCallRetry no longer touches the shared global for its own decision.
+  lastEmptyResponseDiag=thisDiag;
+  return {text:text,diag:thisDiag};
 }
 // Up to 5 attempts with backoff (3s, 6s, 12s, 24s - about 45s of patience
 // total instead of the old ~9s) before giving up. Catches transient
@@ -2223,7 +2237,15 @@ async function apiCallRetry(prompt, maxTok, maxAttempts, timeoutMs, stopCheckFn)
   for(var attempt=0;attempt<MAX_ATTEMPTS;attempt++){
     if(stopCheckFn&&stopCheckFn())throw new Error('Stopped by user.');
     try {
-      var result=await apiCall(prompt,maxTok,timeoutMs);
+      // Round 39b: apiCall() returns {text, diag} tied to THIS specific
+      // call, instead of apiCallRetry reading the shared lastEmptyResponseDiag
+      // global - see the note at apiCall()'s own assignment to that global
+      // for why. result/thisCallDiag below are local to this one attempt and
+      // cannot be clobbered by any concurrently-running call from another
+      // tab's generate loop.
+      var callResult=await apiCall(prompt,maxTok,timeoutMs);
+      var result=callResult.text;
+      var thisCallDiag=callResult.diag;
       if(result&&result.trim()!==''){
         // Round 39: a response can come back NON-empty but still genuinely
         // cut off mid-answer (stop_reason max_tokens) - round 26 already
@@ -2238,14 +2260,14 @@ async function apiCallRetry(prompt, maxTok, maxAttempts, timeoutMs, stopCheckFn)
         // exhausting the full retry budget - so a genuine cutoff either gets
         // a clean retry that completes, or surfaces as a visible failure
         // instead of silently saving partial content.
-        if(lastEmptyResponseDiag&&lastEmptyResponseDiag.stopReason==='max_tokens'){
-          var tdiag=' [diagnostic: stop_reason=max_tokens, response id='+lastEmptyResponseDiag.id+'] - see browser console for the full raw response.';
+        if(thisCallDiag&&thisCallDiag.stopReason==='max_tokens'){
+          var tdiag=' [diagnostic: stop_reason=max_tokens, response id='+thisCallDiag.id+'] - see browser console for the full raw response.';
           lastErr=new Error('The API response was cut off before finishing (ran out of token budget mid-answer, so the saved text would be incomplete) - can be caused by an unusually long/complex item for the current budget, or a transient issue.'+tdiag);
         } else {
           return result;
         }
       } else {
-        var diag=lastEmptyResponseDiag?(' [diagnostic: stop_reason='+lastEmptyResponseDiag.stopReason+', response id='+lastEmptyResponseDiag.id+', content block types='+JSON.stringify(lastEmptyResponseDiag.contentBlockTypes)+'] - see browser console for the full raw response.'):'';
+        var diag=thisCallDiag?(' [diagnostic: stop_reason='+thisCallDiag.stopReason+', response id='+thisCallDiag.id+', content block types='+JSON.stringify(thisCallDiag.contentBlockTypes)+'] - see browser console for the full raw response.'):'';
         lastErr=new Error('The API returned an empty response (no error, but no usable text either) - can be caused by heavy concurrent API load, an unusually large/complex request, or a transient API issue.'+diag);
       }
     } catch(err){
