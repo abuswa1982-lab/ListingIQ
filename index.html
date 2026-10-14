@@ -4118,7 +4118,17 @@ async function buildMasterRecords(isResume){
       if(!hasExcel&&!hasPdf){
         masterRecords[it.baseKey]={technical_specs:{},features:[],applications:[],sources:'None'};
       } else {
-        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000,5,90000,function(){return stops.mg3;});
+        // Round 38: this prompt combines excel-spec text, catalog item text,
+        // catalog family text, and the conflict-labeling/mixed-heading-
+        // discipline instructions - comparable or greater reasoning load than
+        // Product Name's prompt (which needed 4000, raised from 2000 then 300
+        // in rounds 22/23 after hitting the exact same stop_reason=max_tokens,
+        // content block types=["thinking"]-only signature: the model spent its
+        // whole budget on internal reasoning and got cut off before emitting
+        // any actual text). This call was still at the old 2000 budget and
+        // Ahmed hit that identical signature on real data (J160102 etc.) -
+        // raised to 4000 to match the proven Product Name budget.
+        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),4000,5,90000,function(){return stops.mg3;});
         var parsed=parseJsonObjectLoose(resp);
         var rec={technical_specs:{},features:[],applications:[]};
         if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
@@ -4205,7 +4215,7 @@ async function retryFailedMasterRecords(){
       if(!hasExcel&&!hasPdf){
         masterRecords[it.baseKey]={technical_specs:{},features:[],applications:[],sources:'None'};
       } else {
-        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),2000,5,90000,function(){return stops.mg3;});
+        var resp=await apiCallRetry(buildMasterRecordPrompt(it.excelSpecsText,it.pdfItemText,it.pdfFamilyText,conflicts),4000,5,90000,function(){return stops.mg3;});
         var parsed=parseJsonObjectLoose(resp);
         var rec={technical_specs:{},features:[],applications:[]};
         if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
