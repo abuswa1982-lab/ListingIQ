@@ -233,7 +233,8 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
       <button onclick="switchTab(2,this)"><span class="tn">3</span>Highlights</button>
       <button onclick="switchTab(3,this)"><span class="tn">4</span>Description</button>
       <button onclick="switchTab(4,this)"><span class="tn">5</span>HTML Table</button>
-      <button onclick="switchTab(5,this)"><span class="tn">6</span>Consolidate</button>
+      <button onclick="switchTab(5,this)"><span class="tn">6</span>Filters</button>
+      <button onclick="switchTab(6,this)"><span class="tn">7</span>Consolidate</button>
     </div>
     <div class="tab-panel active" id="tab-0">
       <div class="tab-body">
@@ -462,10 +463,32 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
     </div>
     <div class="tab-panel" id="tab-5">
       <div class="tab-body">
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Derives filterable Attribute: Value data from your HTML Tables, per category<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Round 42: no AI call here - this reads your already-generated Specs Table (HTML Table tab) output and turns it into "Attribute: Value" filter data, tagged by each item's category. Generate HTML Tables first, then click Generate Filters here any time (it's instant and always reflects your latest Specs Table content, including anything the Consistency Check corrected). Export just the Filters data on its own below, or import a previously-exported Filters file to seed a matching category's expected attribute set here and in future catalog runs.</span></p>
+        <div class="msg" id="tf-msg"></div>
+        <button class="btn btn-navy" id="tf-gen" onclick="runFiltersTab()">Generate Filters</button>
+        <button class="btn-sm" onclick="openCategoryManager()" style="margin-left:6px;" title="Review or edit each category's saved Filters/Specs Table attribute set directly - Filters and saved categories are the same underlying record">Manage Saved Categories &amp; Filters</button>
+        <div class="res-block" id="tf-res">
+          <div class="res-hdr"><div class="res-title">Filters</div><div class="res-meta" id="tf-meta"></div></div>
+          <div class="exp-row">
+            <button class="btn-sm" onclick="expFiltersCSV()">&#8595; CSV</button>
+            <button class="btn-sm" onclick="expFiltersXLSX()">&#8595; Excel</button>
+            <button class="btn-sm" onclick="document.getElementById('tf-import-input').click()">&#8593; Import Filters</button>
+            <input type="file" id="tf-import-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="importFiltersFile(this.files[0])">
+          </div>
+          <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Category</th><th>Filters</th></tr></thead><tbody id="tf-tbody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-6">
+      <div class="tab-body">
         <p class="lbl-line" style="font-size:13px;color:var(--muted);margin-bottom:1rem;font-family:monospace;">Consolidates everything into one Excel file<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Consolidates all generated outputs into one Excel file. Structured Data (schema.org JSON-LD, for search engines to read) is built automatically from your merged data with no AI call and no generate step needed - it's always included here.</span></p>
         <div class="consol-grid" id="consol-grid"></div>
         <div class="msg" id="t5-msg"></div>
         <button class="btn btn-gold" onclick="runConsolidate()">Export Consolidated Excel</button>
+        <p class="lbl-line" style="font-size:13px;color:var(--muted);margin:1.5rem 0 0.5rem;font-family:monospace;">Optional: find and fix wording inconsistencies within each category<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Round 41: compares every item in the same category (Highlights + Specs Table) to find values that likely describe the same real spec but are worded differently (e.g. "M7 High Speed Steel" vs. "M7 High Speed Steel (M-7 molybdenum)"), one AI check per category. Nothing is changed until you approve (or edit) a suggested fix per attribute - once approved, it rewrites every affected item's Highlights/Specs Table, and the Filters column/sheet (round 40) picks it up automatically since it's derived from the Specs Table at export time.</span></p>
+        <div class="msg" id="consistency-msg"></div>
+        <button class="btn btn-navy" id="consistency-gen" onclick="runConsistencyCheck()">Check Consistency</button>
+        <div id="consistency-results" style="margin-top:10px;"></div>
         <p class="lbl-line" style="font-size:13px;color:var(--muted);margin:1.5rem 0 0.5rem;font-family:monospace;">Optional: check generated content for problems before you use it<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Checks what was generated above for problems - duplicate content between different items, items with no real source data behind them, and (one AI check per item) any claim in the generated text that isn't actually backed by the verified data.</span></p>
         <div class="msg" id="qa-msg"></div>
         <button class="btn btn-navy" id="qa-gen" onclick="runQACheck()">Run QA Check</button>
@@ -499,7 +522,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 <div class="catov-overlay" id="catmgr-overlay">
   <div class="catov-panel">
     <div class="catov-hdr"><div class="catov-title">Saved categories</div><button class="catov-close" onclick="closeCategoryManager()">&times;</button></div>
-    <div class="catov-sub">These are the title patterns that have been approved so far. Merge near-duplicates together, rename, or delete a mistake. Export before clearing your browser data - this list only lives in this browser.</div>
+    <div class="catov-sub">These are the title patterns AND the Filters/Specs Table attribute sets that have been approved so far, one per category - the same saved record drives both (Filters are just that category's Specs Table template, read back out as plain text). Merge near-duplicates together, rename, edit, or delete a mistake. Export before clearing your browser data - this list only lives in this browser.</div>
     <div class="exp-row">
       <button class="btn-sm" onclick="exportCategoryRules()">&#8595; Export (backup)</button>
       <button class="btn-sm" onclick="document.getElementById('catmgr-import-file').click()">&#8593; Import</button>
@@ -525,7 +548,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 <script>
 var fileData = null;
 var stops = {t1:false,t2:false,t3:false,t4:false};
-var results = {t1:[],t2:[],t3:[],t4:[],slugs:[]};
+var results = {t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[]};
 // resumeFrom is the row index where a run stopped (failure or user-stop). null = no pending resume.
 var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
 // Applied to every content-generation prompt (titles, highlights, meta
@@ -850,6 +873,293 @@ function saveCategoryFieldTemplateIfMissing(row,fieldKey,value){
 function categoryTemplateBlock(template,kindLabel){
   if(!template) return '';
   return '\n\nA '+kindLabel+' for this exact product category was already generated and is the FIXED FIELD SET to follow, not a loose style reference:\n'+template+'\n\nSTRICT RULES:\n1. Use the SAME set of attributes/fields as the reference above, in the SAME order - do not add a field that isn\'t in the reference, and do not invent a differently-named field for something the reference already covers (e.g. if the reference says "Material", never write "Material Construction" or "Construction" for this item).\n2. If THIS item genuinely has no data for one of the reference\'s fields, leave that one field out entirely - never show it empty or invent a placeholder value.\n3. Only the ACTUAL VALUES change - the field names, structure, and order must match the reference exactly.';
+}
+// Round 40 (Ahmed's "Filter Table" request): derive a per-item filter
+// string deterministically from the item's ALREADY-GENERATED HTML Table
+// output (results.t4[i].html) - no new AI call, so no new wording-
+// inconsistency risk beyond whatever the Table itself already has. The
+// Table's own category field-set template above (exampleTable, via
+// getCategoryFieldTemplate/categoryTemplateBlock) already keeps the SAME
+// attribute names/order consistent across every item in one category, so
+// that consistency - and, down the road, the existing category export/
+// import mechanism's ability to carry it between catalog runs - is
+// inherited here for free; no new field or plumbing needed on
+// categoryLibrary itself.
+// Uses DOMParser (not regex) so a visually "crooked" table (nested tags,
+// stray whitespace, an HTML entity inside a value like "Black &amp; Gold")
+// still parses correctly. Only a <tr> with exactly two <td> cells counts
+// as one Attribute: Value filter pair; a <th> header row, or a malformed/
+// truncated row, is silently skipped rather than guessed at. Pairs are
+// joined as "Attribute: Value | Attribute: Value" - the format Ahmed
+// confirmed ("exactly format that we need").
+// Round 41 refactor: the pair-extraction half of this is now its own
+// function (tableHtmlToPairs) so the consistency-checker below can reuse
+// the exact same parsing - tableHtmlToFilterString is now just this plus
+// the "Attr: Value | Attr: Value" join, unchanged in its own behavior.
+function tableHtmlToPairs(html){
+  if(!html) return [];
+  try{
+    var wrapped = /<table[\s>]/i.test(html) ? html : ('<table>'+html+'</table>');
+    var doc = new DOMParser().parseFromString(wrapped,'text/html');
+    var trs = doc.querySelectorAll('tr');
+    var pairs = [];
+    for(var i=0;i<trs.length;i++){
+      var cells = trs[i].querySelectorAll('td');
+      if(cells.length !== 2) continue;
+      var attr = (cells[0].textContent||'').replace(/\s+/g,' ').trim();
+      var val = (cells[1].textContent||'').replace(/\s+/g,' ').trim();
+      if(!attr || !val) continue;
+      pairs.push({attr:attr, val:val});
+    }
+    return pairs;
+  }catch(e){
+    return [];
+  }
+}
+function tableHtmlToFilterString(html){
+  return tableHtmlToPairs(html).map(function(p){return p.attr+': '+p.val;}).join(' | ');
+}
+// Round 41: Highlights' bullets are prompted as "<li><strong>Attribute
+// Name:</strong> value</li>" (see runTab2's prompt) - reliably enough that
+// a plain "split each bullet's text on its first colon" is a safe, simple
+// parse, without needing to locate the <strong> tag specifically. A bullet
+// with no colon at all (shouldn't happen given the prompt, but not
+// guaranteed) is silently skipped rather than guessed at.
+function highlightsHtmlToPairs(html){
+  if(!html) return [];
+  try{
+    var wrapped = /<ul[\s>]/i.test(html) ? html : ('<ul>'+html+'</ul>');
+    var doc = new DOMParser().parseFromString(wrapped,'text/html');
+    var lis = doc.querySelectorAll('li');
+    var pairs = [];
+    for(var i=0;i<lis.length;i++){
+      var text = (lis[i].textContent||'').replace(/\s+/g,' ').trim();
+      var ci = text.indexOf(':');
+      if(ci===-1) continue;
+      var attr = text.slice(0,ci).trim();
+      var val = text.slice(ci+1).trim();
+      if(!attr || !val) continue;
+      pairs.push({attr:attr, val:val});
+    }
+    return pairs;
+  }catch(e){
+    return [];
+  }
+}
+// Round 41 (Ahmed's "consistency check" request, replacing the earlier
+// idea of locking wording up front): rather than prevent wording drift
+// before generation, this finds it AFTER generation, across every item
+// already sharing a category, and lets Ahmed approve (or edit) one
+// canonical phrasing per attribute that then gets written back into every
+// affected item - in both the Specs Table (which the round-40 Filters
+// column/sheet derives from, so fixing the Table fixes Filters for free)
+// and Highlights, the two surfaces where this kind of value-wording
+// variance (same real spec, different phrasing - e.g. "M7 High Speed
+// Steel" vs "M7 High Speed Steel (M-7 molybdenum)") actually shows up.
+// Deciding whether two differently-worded values are "the same real spec"
+// vs. "genuinely different" (e.g. two different diameters) needs real
+// judgment, so this is AI-assisted - but only to SUGGEST a canonical
+// phrasing and a grouping; nothing is ever applied without Ahmed's own
+// explicit approval (and he can edit the suggested text first), mirroring
+// the same approve-before-it-applies-broadly pattern the category review
+// screen already uses (round 25).
+//
+// buildConsistencyIndex(): groups results.t4 (Specs Table)/results.t2
+// (Highlights) entries by the item's resolved category, then by a
+// normalized attribute key, collecting every DISTINCT value text seen for
+// that attribute in that category along with exactly which item(s)/
+// surface(s) used it. Only attributes with 2+ distinct values are
+// "candidates" - a single consistent value needs no check at all.
+function buildConsistencyIndex(){
+  var byCategory = {};
+  function addSurface(arr, surfaceKey, parseFn){
+    (arr||[]).forEach(function(r){
+      if(!r.row) return;
+      var cat = getCategoryForRow(r.row);
+      if(!cat) return;
+      var pairs = parseFn(r.html);
+      if(!pairs.length) return;
+      if(!byCategory[cat]) byCategory[cat] = {};
+      pairs.forEach(function(p){
+        var key = normalizeForLabelCompare(p.attr);
+        if(!key) return;
+        if(!byCategory[cat][key]) byCategory[cat][key] = {display:p.attr, variants:{}};
+        var variants = byCategory[cat][key].variants;
+        if(!variants[p.val]) variants[p.val] = [];
+        variants[p.val].push({surface:surfaceKey, partNumber:r.partNumber});
+      });
+    });
+  }
+  addSurface(results.t4, 't4', tableHtmlToPairs);
+  addSurface(results.t2, 't2', highlightsHtmlToPairs);
+  var out = [];
+  Object.keys(byCategory).forEach(function(cat){
+    var attrs = [];
+    Object.keys(byCategory[cat]).forEach(function(key){
+      var entry = byCategory[cat][key];
+      var variantTexts = Object.keys(entry.variants);
+      if(variantTexts.length < 2) return;
+      attrs.push({
+        key:key,
+        display:entry.display,
+        variants: variantTexts.map(function(text){return {text:text, items:entry.variants[text]};})
+      });
+    });
+    if(attrs.length) out.push({category:cat, attributes:attrs});
+  });
+  return out;
+}
+function buildConsistencyPrompt(category, attributes){
+  var attrBlock = attributes.map(function(a){
+    return a.display+':\n'+a.variants.map(function(v){return '  - "'+v.text+'" (used by '+v.items.length+' item(s))';}).join('\n');
+  }).join('\n\n');
+  return 'You are reviewing generated e-commerce listing content for the product category "'+category+'" for WORDING consistency only - not accuracy.\n\n'+
+  'Below, for each attribute, are the DISTINCT value texts currently used across different items in this same category:\n\n'+attrBlock+'\n\n'+
+  'For EACH attribute, decide: are any of these values actually describing the EXACT SAME real-world spec, just phrased/worded differently (e.g. "M7 High Speed Steel" and "M7 High Speed Steel (M-7 molybdenum)" are very likely the same real material, just one adds a clarifying note)? Group ONLY values you are confident describe the same real thing - NEVER group values that could be genuinely different specs (e.g. different sizes, different materials, different finishes are NOT the same thing even if the wording looks similar). When in doubt, do not group.\n\n'+
+  'For each group of 2+ values that should be unified, suggest ONE canonical phrasing - it MUST be exactly one of the existing values already listed above (copy it verbatim), never invented new wording. Mark your confidence "high" or "low" for each group.\n\n'+
+  'Respond with ONLY a JSON object, one key per attribute that has at least one real group (omit any attribute with nothing to merge): {"<Attribute Name>": [{"variants": ["<value1>", "<value2>"], "canonical": "<one of the values above, verbatim>", "confidence": "high"|"low"}, ...], ...}. If nothing in any attribute needs merging, respond {}.';
+}
+async function runConsistencyCheck(){
+  var btn=document.getElementById('consistency-gen');
+  if(btn)btn.disabled=true;
+  setMsg('consistency-msg','Scanning generated content for wording inconsistencies...','info');
+  var index = buildConsistencyIndex();
+  var cards = [];
+  for(var i=0;i<index.length;i++){
+    var group = index[i];
+    setMsg('consistency-msg','Checking category '+(i+1)+' of '+index.length+' ("'+group.category+'")...','info');
+    try{
+      var prompt = buildConsistencyPrompt(group.category, group.attributes);
+      var resp = await apiCallRetry(prompt, 1500, 5, 90000);
+      var parsed = parseJsonObjectLoose(resp) || {};
+      group.attributes.forEach(function(attr){
+        var groups = parsed[attr.display];
+        if(!Array.isArray(groups)) return;
+        groups.forEach(function(g){
+          if(!g || !Array.isArray(g.variants) || g.variants.length<2) return;
+          var items = [];
+          g.variants.forEach(function(vText){
+            var variant = attr.variants.filter(function(v){return v.text===vText;})[0];
+            if(variant) items = items.concat(variant.items.map(function(it){return {surface:it.surface, partNumber:it.partNumber, oldText:vText};}));
+          });
+          if(!items.length) return;
+          cards.push({
+            category:group.category, attrKey:attr.key, attrDisplay:attr.display,
+            variants:g.variants, items:items,
+            canonical: (g.variants.indexOf(g.canonical)!==-1) ? g.canonical : g.variants[0],
+            confidence: g.confidence==='low'?'low':'high',
+            applied:false
+          });
+        });
+      });
+    }catch(err){
+      cards.push({category:group.category, attrDisplay:'(check failed)', error:err.message, applied:false, isError:true});
+    }
+  }
+  consistencyResults = cards;
+  renderConsistencyResults();
+  var realCards = cards.filter(function(c){return !c.isError;});
+  setMsg('consistency-msg', realCards.length ? (realCards.length+' possible inconsistenc'+(realCards.length===1?'y':'ies')+' found across '+index.length+' categor'+(index.length===1?'y':'ies')+' - review below.') : (index.length ? 'No wording inconsistencies found across '+index.length+' categor'+(index.length===1?'y':'ies')+' with 2+ items.' : 'No categories with multiple items to compare yet - generate Highlights and/or HTML Tables for at least two items in the same category first.'), realCards.length?'warn':'success');
+  if(btn)btn.disabled=false;
+}
+function renderConsistencyResults(){
+  var el = document.getElementById('consistency-results');
+  if(!el) return;
+  if(!consistencyResults || !consistencyResults.length){ el.innerHTML=''; return; }
+  el.innerHTML = consistencyResults.map(function(card,idx){
+    if(card.isError){
+      return '<div class="res-block on"><div class="res-hdr"><div class="res-title">'+card.category+'</div></div><div style="padding:10px;color:var(--err,#b00);">Could not check this category: '+card.error+'</div></div>';
+    }
+    var itemList = card.items.map(function(it){return it.partNumber+' ('+(it.surface==='t4'?'Table':'Highlights')+': "'+it.oldText+'")';}).join(', ');
+    var confNote = card.confidence==='low' ? '<div style="color:var(--warn,#a66);font-size:12px;margin:4px 0;">AI isn\'t fully sure these are the same real spec - double-check before approving.</div>' : '';
+    return '<div class="res-block on" id="consistency-card-'+idx+'">'+
+      '<div class="res-hdr"><div class="res-title">'+card.category+' - '+card.attrDisplay+'</div></div>'+
+      '<div style="padding:10px;">'+
+      '<div style="margin-bottom:6px;">Found: '+card.variants.map(function(v){return '"'+v+'"';}).join(' vs. ')+'</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Affects: '+itemList+'</div>'+
+      confNote+
+      (card.applied
+        ? '<div style="color:var(--ok,#2a7);font-weight:600;">&#10003; Updated '+card.items.length+' item(s)</div>'
+        : '<input type="text" id="consistency-input-'+idx+'" value="'+escAttr(card.canonical)+'" style="width:100%;max-width:420px;padding:6px 8px;margin-bottom:6px;">'+
+          '<button class="btn-sm" onclick="applyConsistencyFix('+idx+')">Update All ('+card.items.length+' item(s))</button>')+
+      '</div></div>';
+  }).join('');
+}
+function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escHtmlText(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function replaceTableValueText(html, attrKey, oldValue, newValue){
+  if(!html) return html;
+  var hadTable = /<table[\s>]/i.test(html);
+  var wrapped = hadTable ? html : ('<table>'+html+'</table>');
+  var doc, changed=false;
+  try{ doc = new DOMParser().parseFromString(wrapped,'text/html'); }catch(e){ return html; }
+  var trs = doc.querySelectorAll('tr');
+  for(var i=0;i<trs.length;i++){
+    var cells = trs[i].querySelectorAll('td');
+    if(cells.length!==2) continue;
+    var attr = (cells[0].textContent||'').replace(/\s+/g,' ').trim();
+    var val = (cells[1].textContent||'').replace(/\s+/g,' ').trim();
+    if(normalizeForLabelCompare(attr)===attrKey && val===oldValue){
+      cells[1].textContent = newValue;
+      changed = true;
+    }
+  }
+  if(!changed) return html;
+  var tableEl = doc.querySelector('table');
+  return hadTable ? tableEl.outerHTML : tableEl.innerHTML;
+}
+function replaceHighlightsValueText(html, attrKey, oldValue, newValue){
+  if(!html) return html;
+  var hadUl = /<ul[\s>]/i.test(html);
+  var wrapped = hadUl ? html : ('<ul>'+html+'</ul>');
+  var doc, changed=false;
+  try{ doc = new DOMParser().parseFromString(wrapped,'text/html'); }catch(e){ return html; }
+  var lis = doc.querySelectorAll('li');
+  for(var i=0;i<lis.length;i++){
+    var li = lis[i];
+    var text = (li.textContent||'').replace(/\s+/g,' ').trim();
+    var ci = text.indexOf(':');
+    if(ci===-1) continue;
+    var attr = text.slice(0,ci).trim();
+    var val = text.slice(ci+1).trim();
+    if(normalizeForLabelCompare(attr)===attrKey && val===oldValue){
+      var strong = li.querySelector('strong,b');
+      if(strong){
+        li.innerHTML = strong.outerHTML+' '+escHtmlText(newValue);
+      } else {
+        li.textContent = attr+': '+newValue;
+      }
+      changed = true;
+    }
+  }
+  if(!changed) return html;
+  var ulEl = doc.querySelector('ul');
+  return hadUl ? ulEl.outerHTML : ulEl.innerHTML;
+}
+function applyConsistencyFix(idx){
+  var card = consistencyResults[idx];
+  if(!card || card.applied || card.isError) return;
+  var inputEl = document.getElementById('consistency-input-'+idx);
+  var newValue = inputEl ? inputEl.value.trim() : card.canonical;
+  if(!newValue) return;
+  var updatedCount = 0;
+  card.items.forEach(function(it){
+    var arr = results[it.surface];
+    if(!arr) return;
+    var entry = null;
+    for(var i=0;i<arr.length;i++){ if(arr[i].partNumber===it.partNumber){ entry=arr[i]; break; } }
+    if(!entry) return;
+    if(it.oldText===newValue) { updatedCount++; return; } // already matches, nothing to change but still counts as consistent
+    var newHtml = it.surface==='t4'
+      ? replaceTableValueText(entry.html, card.attrKey, it.oldText, newValue)
+      : replaceHighlightsValueText(entry.html, card.attrKey, it.oldText, newValue);
+    if(newHtml!==entry.html){ entry.html = newHtml; updatedCount++; }
+  });
+  card.applied = true;
+  renderConsistencyResults();
+  setMsg('consistency-msg', 'Updated '+updatedCount+' item(s) for '+card.category+' - '+card.attrDisplay+'. Re-run the export whenever you\'re ready - the Filters column/sheet picks up Specs Table changes automatically.', 'success');
+  renderTab('t4', results.t4);
+  renderTab('t2', results.t2);
 }
 function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 // ---- Round 25: category review modal ----
@@ -1322,30 +1632,38 @@ function renderCategoryManager(){
     return;
   }
 
+  // Round 43 (Ahmed's own realization, working it through out loud: "the
+  // filters, it's attached to the category... they are the same... how
+  // we can build the bridge"): Filters were never separate data - they
+  // ARE the category's Specs Table template (exampleTable), just read
+  // back out in "Attribute: Value" form. Before this round that template
+  // was only visible here as a vague count lumped in with Highlights/
+  // Description ("N content templates set"), with no way to see or edit
+  // it directly - only a combined "Clear content templates" that wiped
+  // all three at once. Rather than build Ahmed's first-floated idea of a
+  // SEPARATE "Manage Saved Filters" screen (he talked himself out of that
+  // on his own - "let's not do that... they are the same"), this instead
+  // surfaces the Filters/Specs Table template as its own visible,
+  // directly editable line right here in the one screen he already knows
+  // - the bridge he was asking for is this same categoryLibrary.categories
+  // object, now just shown for what it actually is.
   function renderOneCategory(name){
     var cat = categoryLibrary.categories[name];
     var variantCount = (cat.rawLabels||[]).length;
-    var contentTemplateCount = ['exampleHighlights','exampleDescription','exampleTable'].filter(function(k){return !!cat[k];}).length;
-    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in'+(contentTemplateCount?' &middot; '+contentTemplateCount+' content template'+(contentTemplateCount===1?'':'s')+' set (Highlights/Description/Table)':'')+'</div></div>'+
-      '<div class="catcard-btns" style="margin-top:0;">'+
-        '<button class="catcard-btn" onclick="editCategoryExamplePrompt(\''+escJs(name)+'\')">Edit</button>'+
+    var otherTemplateCount = ['exampleHighlights','exampleDescription'].filter(function(k){return !!cat[k];}).length;
+    var filtersPreview = cat.exampleTable ? tableHtmlToFilterString(cat.exampleTable) : '';
+    var filtersLine = '<div class="catmgr-meta" style="margin-top:4px;"><b>Filters (Specs Table):</b> '+(filtersPreview?esc(filtersPreview):'<i>not set yet - the first item generated in this category will set one</i>')+'</div>';
+    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in'+(otherTemplateCount?' &middot; '+otherTemplateCount+' content template'+(otherTemplateCount===1?'':'s')+' set (Highlights/Description)':'')+'</div>'+filtersLine+'</div>'+
+      '<div class="catcard-btns" style="margin-top:6px;">'+
+        '<button class="catcard-btn" onclick="editCategoryExamplePrompt(\''+escJs(name)+'\')">Edit Title</button>'+
+        '<button class="catcard-btn" onclick="editCategoryFiltersPrompt(\''+escJs(name)+'\')">Edit Filters</button>'+
         '<button class="catcard-btn" onclick="renameCategoryPrompt(\''+escJs(name)+'\')">Rename</button>'+
         '<button class="catcard-btn" onclick="mergeCategoryPrompt(\''+escJs(name)+'\')">Merge into...</button>'+
-        (contentTemplateCount?'<button class="catcard-btn" onclick="clearContentTemplates(\''+escJs(name)+'\')" title="Clear the saved Highlights/Description/Table field-set so the next generated item sets a fresh one">Clear content templates</button>':'')+
+        (otherTemplateCount?'<button class="catcard-btn" onclick="clearContentTemplates(\''+escJs(name)+'\')" title="Clear the saved Highlights/Description field-set so the next generated item sets a fresh one">Clear Highlights/Description</button>':'')+
+        (cat.exampleTable?'<button class="catcard-btn" onclick="clearCategoryFilters(\''+escJs(name)+'\')" title="Clear the saved Filters/Specs Table field-set">Clear Filters</button>':'')+
         '<button class="catcard-btn" onclick="deleteCategoryPrompt(\''+escJs(name)+'\')">Delete</button>'+
       '</div></div></div>';
   }
-  function clearContentTemplates(name){
-    var cat = categoryLibrary.categories[name];
-    if(!cat) return;
-    if(!confirm('Clear the saved Highlights/Description/Table field-set for "'+name+'"? The next item generated in this category will set a fresh one from scratch; nothing already generated is changed.')) return;
-    delete cat.exampleHighlights;
-    delete cat.exampleDescription;
-    delete cat.exampleTable;
-    saveCategoryLibrary();
-    renderCategoryManager();
-  }
-
   var grouped = {};
   var ungrouped = [];
   names.forEach(function(name){
@@ -1440,6 +1758,51 @@ function editCategoryExamplePrompt(name){
   newTitle = newTitle.trim();
   if(!newTitle){ alert('The example title can\'t be empty.'); return; }
   cat.exampleTitle = newTitle;
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+// Round 43: this now only clears Highlights/Description - Filters/Specs
+// Table has its own separate "Clear Filters" button/function below, since
+// each template is independently meaningful and shouldn't be wiped as a
+// package deal anymore. Moved to top-level (it was previously nested
+// inside renderCategoryManager(), which meant the onclick="" attribute
+// calling it by name from the rendered HTML would fail - functions
+// referenced from inline onclick must live in global scope).
+function clearContentTemplates(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat) return;
+  if(!confirm('Clear the saved Highlights/Description field-set for "'+name+'"? The next item generated in this category will set a fresh one from scratch; nothing already generated is changed. (Filters/Specs Table has its own separate "Clear Filters" button below.)')) return;
+  delete cat.exampleHighlights;
+  delete cat.exampleDescription;
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+// Round 43: directly edit a category's Filters/Specs Table template in
+// the same plain "Attribute: Value | Attribute: Value" shape it's shown
+// in and exported/imported as (round 40/42) - round-trips through
+// filterStringToPairs()/pairsToTableHtml() so what's saved is still a real
+// Specs Table HTML string (same thing getCategoryFieldTemplate() /
+// categoryTemplateBlock() feed into a real generation prompt), not a
+// parallel data shape.
+function editCategoryFiltersPrompt(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat) return;
+  var current = cat.exampleTable ? tableHtmlToFilterString(cat.exampleTable) : '';
+  var newFilters = prompt('Edit the saved Filters/Specs Table attribute set for "'+name+'" - format: Attribute: Value | Attribute: Value\n\nThis sets the FIELD SET every future item in this category will follow (only the actual values change per item):', current);
+  if(newFilters===null) return;
+  newFilters = newFilters.trim();
+  if(!newFilters){ alert('The filters text can\'t be empty - use "Clear Filters" instead if you want to remove it.'); return; }
+  var pairs = filterStringToPairs(newFilters);
+  if(!pairs.length){ alert('Could not parse that - use the format "Attribute: Value | Attribute: Value".'); return; }
+  cat.exampleTable = pairsToTableHtml(pairs);
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+function clearCategoryFilters(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat || !cat.exampleTable) return;
+  if(!confirm('Clear the saved Filters/Specs Table field-set for "'+name+'"? The next item generated in this category will set a fresh one from scratch; nothing already generated is changed.')) return;
+  delete cat.exampleTable;
   saveCategoryLibrary();
   renderCategoryManager();
 }
@@ -1690,7 +2053,7 @@ function getKey(){return localStorage.getItem('liq_key')||document.getElementByI
 window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();});
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
-  fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[]};
   t1Failures=[];
   showT1RetryBtn(false);
   runState={t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
@@ -1704,6 +2067,9 @@ function clearAll(){
     showResume(t,false);
   });
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
+  var tfr=document.getElementById('tf-res');if(tfr)tfr.classList.remove('on');
+  setMsg('tf-msg','','');
+  consistencyResults=[];renderConsistencyResults();
   updateConsolGrid();
   pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];lastPageTexts={};failedChunks=[];
   validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
@@ -1872,7 +2238,7 @@ function switchTab(idx,btn){
   document.querySelectorAll('.tab-nav button').forEach(function(b){b.classList.remove('active');});
   document.getElementById('tab-'+idx).classList.add('active');
   btn.classList.add('active');
-  if(idx===5)updateConsolGrid();
+  if(idx===6)updateConsolGrid();
 }
 function setMsg(id,msg,type){var el=document.getElementById(id);if(!el)return;el.className='msg'+(type?' '+type:'');el.textContent=msg;}
 function setProg(t,pct,lbl){
@@ -2918,6 +3284,10 @@ function updateConsolGrid(){
   });
   var sdCount=(fileData&&fileData.length)?fileData.length:0;
   html+='<div class="consol-item"><span class="consol-name">Structured Data (JSON-LD)</span><span class="consol-count'+(sdCount===0?' empty':'')+'">'+(sdCount>0?sdCount+' rows (automatic, no generate step needed)':'Not available - load data first')+'</span></div>';
+  // Round 40: Filters piggyback on HTML Tables - no separate generate step,
+  // so this line only shows a real count once Tab 4 has been run.
+  var flCount=results.t4.length;
+  html+='<div class="consol-item"><span class="consol-name">Filters (from HTML Tables)</span><span class="consol-count'+(flCount===0?' empty':'')+'">'+(flCount>0?flCount+' rows (automatic, no generate step needed)':'Not available - generate HTML Tables first')+'</span></div>';
   var el=document.getElementById('consol-grid');if(el)el.innerHTML=html;
 }
 function runConsolidate(){
@@ -2940,6 +3310,17 @@ function runConsolidate(){
   var pnMap={};
   function addRows(arr,field){arr.forEach(function(r){var pn=r.partNumber||'';if(!pnMap[pn])pnMap[pn]={};if(field==='title'){pnMap[pn][r.channel||'title']=r.title||'';}else{pnMap[pn][field]=r.html||r.slug||'';}});}
   addRows(results.t1,'title');addRows(results.slugs,'slug');addRows(results.t2,'highlights');addRows(results.t3,'description');addRows(results.t4,'html_table');
+  // Round 40: Filters - derived deterministically (no AI call, no separate
+  // "generate" step) straight from each item's already-generated HTML
+  // Table output, tagged with the item's resolved category. Only available
+  // for rows that already have a Table generated, same gating as the
+  // Table column itself.
+  results.t4.forEach(function(r){
+    var pnFl=r.partNumber||'';
+    if(!pnMap[pnFl])pnMap[pnFl]={};
+    pnMap[pnFl].filter_category = (r.row ? (getCategoryForRow(r.row)||'') : '');
+    pnMap[pnFl].filters = tableHtmlToFilterString(r.html);
+  });
   // Structured data needs no "generate" step of its own - it's built fresh
   // for every row already in the merged sheet, straight from those fields,
   // whether or not any content tab has been run yet.
@@ -2958,11 +3339,11 @@ function runConsolidate(){
   // populated through the UI anymore, so they showed up permanently blank
   // next to a real "Website Title" column. Ahmed flagged this directly as
   // confusing clutter, so those two dead columns are dropped here.
-  var headers=['Part Number','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)','Structured Data (JSON-LD)'];
+  var headers=['Part Number','Website Title','URL Slug','Highlights (HTML)','Description (HTML)','Specs Table (HTML)','Filters','Structured Data (JSON-LD)'];
   var rows=[headers];
-  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'',d.structured_data||'']);});
+  Object.keys(pnMap).forEach(function(pn){var d=pnMap[pn];rows.push([pn,d.website||d.title||'',d.slug||'',d.highlights||'',d.description||'',d.html_table||'',d.filters||'',d.structured_data||'']);});
   var ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:18},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50},{wch:60}];
+  ws['!cols']=[{wch:18},{wch:40},{wch:55},{wch:50},{wch:50},{wch:50},{wch:60},{wch:60}];
   XLSX.utils.book_append_sheet(wb,ws,'All Outputs');
   // Round 34b: this sheet's old-shape branch (r.titles / amazon-ebay-website
   // loop) is dead - results.t1 has been single-channel-only (r.title/r.channel)
@@ -2976,6 +3357,11 @@ function runConsolidate(){
   if(results.t2.length){var t2r=[['Part Number','Highlights (HTML)']];results.t2.forEach(function(r){t2r.push([r.partNumber||'',r.html||'']);});var ws2=XLSX.utils.aoa_to_sheet(t2r);ws2['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws2,'Highlights');}
   if(results.t3.length){var t3r=[['Part Number','Description (HTML)']];results.t3.forEach(function(r){t3r.push([r.partNumber||'',r.html||'']);});var ws3=XLSX.utils.aoa_to_sheet(t3r);ws3['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws3,'Descriptions');}
   if(results.t4.length){var t4r=[['Part Number','Specs Table (HTML)']];results.t4.forEach(function(r){t4r.push([r.partNumber||'',r.html||'']);});var ws4=XLSX.utils.aoa_to_sheet(t4r);ws4['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,ws4,'HTML Tables');}
+  // Round 40: dedicated "Filters" sheet, grouped by category (Part Number,
+  // Category, Filters) - parallels how "Structured Data" gets its own
+  // sheet below, so the filter data is easy to pull per category on its
+  // own, e.g. for a future import/reuse pass across catalog runs.
+  if(results.t4.length){var flr=[['Part Number','Category','Filters']];results.t4.slice().sort(function(a,b){var ca=pnMap[a.partNumber]?pnMap[a.partNumber].filter_category||'':'';var cb=pnMap[b.partNumber]?pnMap[b.partNumber].filter_category||'':'';return ca<cb?-1:(ca>cb?1:0);}).forEach(function(r){var pnFlRow=r.partNumber||'';flr.push([pnFlRow,pnMap[pnFlRow]?pnMap[pnFlRow].filter_category||'':'',pnMap[pnFlRow]?pnMap[pnFlRow].filters||'':'']);});var wsFl=XLSX.utils.aoa_to_sheet(flr);wsFl['!cols']=[{wch:18},{wch:30},{wch:90}];XLSX.utils.book_append_sheet(wb,wsFl,'Filters');}
   if(fileData&&fileData.length){var sdr=[['Part Number','Structured Data (JSON-LD)']];fileData.forEach(function(row){var pn=getPN(row)||'';sdr.push([pn,pnMap[pn]?pnMap[pn].structured_data||'':'']);});var wsSd=XLSX.utils.aoa_to_sheet(sdr);wsSd['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,wsSd,'Structured Data');}
   if(results.slugs.length){var slr=[['Part Number','Title','URL Slug']];results.slugs.forEach(function(r){slr.push([r.partNumber||'',r.title||'',r.slug||'']);});var wsl=XLSX.utils.aoa_to_sheet(slr);wsl['!cols']=[{wch:18},{wch:50},{wch:55}];XLSX.utils.book_append_sheet(wb,wsl,'URL Slugs');}
   XLSX.writeFile(wb,'ListingIQ-Export.xlsx');
@@ -3023,6 +3409,130 @@ function expSlugXLSX(){
   results.slugs.forEach(function(r){rows.push([r.index,r.partNumber||'',r.title||'',r.slug||'']);});
   var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:6},{wch:18},{wch:50},{wch:55}];
   XLSX.utils.book_append_sheet(wb2,ws,'URL Slugs');XLSX.writeFile(wb2,'url-slugs.xlsx');
+}
+// Round 42 (Ahmed's direct follow-up: he wants Filters as its own numbered
+// tab in the same position/format as every other tab - "after the HTML
+// table... when you go to each one of those things, it needs to be up
+// there" - plus a real import mechanism "with the right category", which
+// he said he didn't have). Filters still need no AI call and no separate
+// Resume/Stop state - runFiltersTab() just reads whatever's already in
+// results.t4 (HTML Tables) right now and recomputes fresh every time it's
+// clicked, so it always reflects the latest Specs Table content,
+// including anything the round-41 Consistency Check corrected since the
+// last click.
+function runFiltersTab(){
+  if(!results.t4.length){ setMsg('tf-msg','Generate HTML Tables first (tab 5) - Filters are derived from that output.', 'error'); return; }
+  results.tf = results.t4.map(function(r){
+    return {
+      partNumber: r.partNumber,
+      category: (r.row ? (getCategoryForRow(r.row)||'') : ''),
+      filters: tableHtmlToFilterString(r.html)
+    };
+  });
+  renderFiltersTab();
+  document.getElementById('tf-res').classList.add('on');
+  setMsg('tf-msg', results.tf.length+' row(s) ready.', 'success');
+}
+function renderFiltersTab(){
+  var tbody=document.getElementById('tf-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = results.tf.map(function(r,i){
+    return '<tr><td>'+(i+1)+'</td><td>'+escHtmlText(r.partNumber||'')+'</td><td>'+escHtmlText(r.category||'(uncategorized)')+'</td><td>'+escHtmlText(r.filters||'')+'</td></tr>';
+  }).join('');
+  var meta=document.getElementById('tf-meta');
+  if(meta) meta.textContent = results.tf.length+' row(s)';
+}
+function expFiltersCSV(){
+  if(!results.tf.length){alert('Click Generate Filters first.');return;}
+  var rows=[['Part Number','Category','Filters']];
+  results.tf.forEach(function(r){rows.push([r.partNumber||'',r.category||'',r.filters||'']);});
+  var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  dl(new Blob([csv],{type:'text/csv'}),'filters.csv');
+}
+function expFiltersXLSX(){
+  if(!results.tf.length){alert('Click Generate Filters first.');return;}
+  var wb2=XLSX.utils.book_new();
+  var rows=[['Part Number','Category','Filters']];
+  results.tf.forEach(function(r){rows.push([r.partNumber||'',r.category||'',r.filters||'']);});
+  var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:18},{wch:30},{wch:90}];
+  XLSX.utils.book_append_sheet(wb2,ws,'Filters');XLSX.writeFile(wb2,'filters.xlsx');
+}
+// Round 42: the inverse of tableHtmlToFilterString()'s join - splits a
+// "Attribute: Value | Attribute: Value" string back into pairs, so an
+// imported Filters file's text can be turned back into a real Specs
+// Table template.
+function filterStringToPairs(filterStr){
+  if(!filterStr) return [];
+  return String(filterStr).split('|').map(function(part){
+    var ci = part.indexOf(':');
+    if(ci===-1) return null;
+    var attr = part.slice(0,ci).trim();
+    var val = part.slice(ci+1).trim();
+    if(!attr || !val) return null;
+    return {attr:attr, val:val};
+  }).filter(Boolean);
+}
+function pairsToTableHtml(pairs){
+  var rows = pairs.map(function(p){return '<tr><td>'+escHtmlText(p.attr)+'</td><td>'+escHtmlText(p.val)+'</td></tr>';}).join('');
+  return '<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+// Round 42: "import the filters with the right category" - reads a
+// previously-exported Filters file (Part Number, Category, Filters - the
+// exact shape expFiltersCSV()/expFiltersXLSX() produce, so this round-
+// trips with no manual reformatting), groups by Category, and for each
+// category uses its longest/most-complete Filters string as the
+// representative attribute set. That gets turned back into a real Specs
+// Table template (pairsToTableHtml) and saved onto categoryLibrary as
+// that category's exampleTable - the SAME mechanism that already keeps a
+// category's Table/Filters consistent today (getCategoryFieldTemplate/
+// categoryTemplateBlock, round 31), just now seedable from a prior
+// export instead of only ever being set by the first item generated in a
+// fresh run. A category that doesn't exist yet is created (matched by its
+// own name as a raw label) so a future item whose Product Type matches it
+// picks up this template automatically; an existing category's exampleTable
+// is only ever replaced after an explicit confirm, never silently.
+function importFiltersFile(file){
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var wb = XLSX.read(e.target.result,{type:'array'});
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(ws);
+      var byCategory = {};
+      rows.forEach(function(row){
+        var cat = String(row['Category']||'').trim();
+        var filters = String(row['Filters']||'').trim();
+        if(!cat || !filters) return;
+        if(!byCategory[cat] || filters.length > byCategory[cat].length) byCategory[cat] = filters;
+      });
+      var catNames = Object.keys(byCategory);
+      if(!catNames.length){ alert('This file doesn\'t look like a Filters export (expected Part Number/Category/Filters columns with real data).'); document.getElementById('tf-import-input').value=''; return; }
+      var toCreate = catNames.filter(function(c){return !categoryLibrary.categories[c];});
+      var toReplace = catNames.filter(function(c){return categoryLibrary.categories[c] && categoryLibrary.categories[c].exampleTable;});
+      var msg = 'Import filter templates for '+catNames.length+' categor'+(catNames.length===1?'y':'ies')+'? '+
+        (toCreate.length?toCreate.length+' new categor'+(toCreate.length===1?'y':'ies')+' will be created. ':'')+
+        (toReplace.length?toReplace.length+' existing categor'+(toReplace.length===1?'y':'ies')+' already have a Specs Table template, which will be REPLACED. ':'')+
+        'This only affects the Specs Table/Filters template - nothing already generated is changed.';
+      if(!confirm(msg)) { document.getElementById('tf-import-input').value=''; return; }
+      catNames.forEach(function(cat){
+        var pairs = filterStringToPairs(byCategory[cat]);
+        if(!pairs.length) return;
+        var html = pairsToTableHtml(pairs);
+        if(!categoryLibrary.categories[cat]){
+          categoryLibrary.categories[cat] = {rawLabels:[normalizeCategoryLabel(cat)], mainCategory:'Imported', exampleTable:html};
+        } else {
+          categoryLibrary.categories[cat].exampleTable = html;
+        }
+      });
+      saveCategoryLibrary();
+      alert('Imported filter templates for '+catNames.length+' categor'+(catNames.length===1?'y':'ies')+'. Future items matched to '+(catNames.length===1?'this category':'these categories')+' will use this attribute set for their Specs Table (and therefore Filters) automatically.');
+    }catch(err){
+      alert('Could not import this file: '+(err&&err.message?err.message:err));
+    }
+    document.getElementById('tf-import-input').value='';
+  };
+  reader.readAsArrayBuffer(file);
 }
 function dl(blob,name){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href);},1000);}
 function dlCSV(){
@@ -3086,6 +3596,7 @@ var masterRecordFailures = [];
 // retried, never silently faked.
 var t1Failures = [];
 var qaResults = [];          // Phase 5: [{baseKey, partNumber, issues:[...]}]
+var consistencyResults = []; // Round 41: [{category, attrKey, attrDisplay, variants, items, canonical, confidence, applied}]
 function udragPdf(e,on){e.preventDefault();document.getElementById('uz-pdf').classList.toggle('drag',on);}
 function udropPdf(e){e.preventDefault();document.getElementById('uz-pdf').classList.remove('drag');var f=e.dataTransfer.files[0];if(f)loadPdfFile(f);}
 function fpickPdf(e){var f=e.target.files[0];if(f)loadPdfFile(f);}
@@ -4911,12 +5422,15 @@ function useMergedData(){
   if(!mergedForFileData.length){alert('Run the merge first.');return;}
   var scoped=getScopedMergedRows();
   fileData=scoped;
-  results={t1:[],t2:[],t3:[],t4:[],slugs:[]};
+  results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[]};
   t1Failures=[];
   showT1RetryBtn(false);
   runState.t1={resumeFrom:null,channel:null};runState.t2={resumeFrom:null};runState.t3={resumeFrom:null};runState.t4={resumeFrom:null};
   ['t1','t2','t3','t4'].forEach(function(t){var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');showResume(t,false);});
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
+  var tfr2=document.getElementById('tf-res');if(tfr2)tfr2.classList.remove('on');
+  setMsg('tf-msg','','');
+  consistencyResults=[];renderConsistencyResults();
   document.getElementById('uz').classList.add('loaded');
   document.getElementById('uz-fname').textContent='Merged from catalog - '+fileData.length+' row(s)'+(scoped.length<mergedForFileData.length?' (scoped - '+(mergedForFileData.length-scoped.length)+' catalog-only item(s) excluded)':'');
   document.getElementById('uz-text').textContent='File loaded';
