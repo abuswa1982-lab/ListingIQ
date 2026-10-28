@@ -363,6 +363,27 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
             <input type="text" id="t1-brand" placeholder="e.g. Wright Tool">
           </div>
         </div>
+        <!-- Round 45c (Ahmed, looking at real results: some titles kept a
+             trailing secondary spec like "135°"/"Split" and others dropped
+             it, inconsistently - "you can't just cut off and one is drill,
+             one's 35 split, one is not... is it really needs to be 85 or
+             can we make it flexible?"). 85 was never an outside rule - it's
+             a number Ahmed himself asked for in round 28 (raised from 70) -
+             so it's made a real adjustable setting here instead of a number
+             baked into the code, remembered per browser like the API key.
+             Raising it gives the model more room before it has to start
+             dropping that last slot, which directly reduces how often this
+             kind of inconsistency can happen - though if a specific item's
+             own source data is simply missing that spec, no length limit
+             fixes that; worth checking the source row directly if it keeps
+             happening after raising this. -->
+        <div class="two-col">
+          <div class="field">
+            <label>Website title length <span style="color:var(--faint);font-size:10px;">(hard max characters)</span></label>
+            <input type="number" id="t1-title-max" min="60" max="150" step="1" oninput="saveTitleMaxLen()">
+          </div>
+        </div>
+        <div class="resilience-note lbl-line" style="background:var(--s2);color:var(--muted);border-left-color:var(--gold);">Longer titles leave more room for every spec to fit consistently<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">When a title would exceed this limit, the lowest-priority spec (e.g. a secondary attribute like a point angle or split) gets dropped entirely for that one item - which can look inconsistent next to a similar item that had enough room to keep it. Raising this limit gives every title more breathing room before that has to happen. There's no required value here; it only matters if you're using this title somewhere (like a page's &lt;title&gt; tag) where very long titles get visually truncated.</span></div>
         <div class="variant-note lbl-line">Size is excluded from generated content<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">Size is stripped from generated titles, highlights, and specs tables so the output covers all sizes of the product. Color, length, gauge, voltage, and other attributes are kept.</span></div>
         <div class="resilience-note lbl-line">Resume-on-failure<button type="button" class="info-ic" onclick="showInfoPopup(this)">i</button><span class="info-full">If a row fails, the run stops there with completed rows intact. Click Resume to retry that row and continue. Auto-retries each row once on transient errors.</span></div>
         <!-- Round 25: category rules - a saved library of per-category title
@@ -2018,8 +2039,35 @@ var CH = {
     // either. Raised to 85/80 (same 5-char target/max gap as before) to
     // give both real breathing room, sized directly off the "85" Ahmed
     // asked for.
-    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. After that, follow this SAME slot order for every title in this run - use whichever slots the source data actually has for THIS item, in this order, skipping only a slot with no data (never reorder or swap slots row to row): 1) primary dimension/size (e.g. width, diameter, length, capacity), 2) material/construction descriptor (e.g. a coating, finish, or build type), 3) product type/category, 4) one differentiating secondary spec (e.g. a count, rate, or grade), if there is room. Reproduce any term\'s spelling, hyphenation, and punctuation EXACTLY as it appears in the source data - never hyphenate a term on one row and not on another, and always use the inch mark (") for inch measurements, never "in." or "inches" spelled out. Target 75-85 characters, hard max 85. If the full structured title would exceed the limit, drop the LAST slot(s) entirely rather than cutting a slot short - never end the title on a bare number with no unit, a dangling connector word (for/with/and/of/etc.), or a trailing comma.'}
+    // Round 45c: the "Target X-Y characters, hard max Z" sentence used to be
+    // frozen text baked into this rule string (always said "75-85"/"85" no
+    // matter what). Now that the limit is a live, user-adjustable setting
+    // (see t1-title-max), that sentence is dropped here entirely - it's
+    // already appended fresh, correctly, from the CURRENT chConfig.target/
+    // chConfig.max every single time in buildTitlePrompt() below, so there's
+    // only ever one place the actual numbers can drift out of sync from.
+    rule:'Website/SEO title: MUST start with [Brand] [Part Number]. After that, follow this SAME slot order for every title in this run - use whichever slots the source data actually has for THIS item, in this order, skipping only a slot with no data (never reorder or swap slots row to row): 1) primary dimension/size (e.g. width, diameter, length, capacity), 2) material/construction descriptor (e.g. a coating, finish, or build type), 3) product type/category, 4) one differentiating secondary spec (e.g. a count, rate, or grade), if there is room. Reproduce any term\'s spelling, hyphenation, and punctuation EXACTLY as it appears in the source data - never hyphenate a term on one row and not on another, and always use the inch mark (") for inch measurements, never "in." or "inches" spelled out. If the full structured title would exceed the limit, drop the LAST slot(s) entirely rather than cutting a slot short - never end the title on a bare number with no unit, a dangling connector word (for/with/and/of/etc.), or a trailing comma.'}
 };
+// Round 45c: liq_title_max persists Ahmed's chosen Website/SEO hard-max
+// length (default 85, the value round 28 landed on) the same way liq_key
+// persists the API key - read on load, re-applied any time the field
+// changes, kept 5 characters above the "target" the same way round 28 set
+// target 5 below max (shown to the model as the appended "Title target N
+// chars (hard max M)" sentence in buildTitlePrompt - no code path should
+// ever read a frozen "85" again).
+var TITLE_MAX_DEFAULT = 85;
+function applyTitleMaxLen(v){
+  var n = parseInt(v, 10);
+  if(!n || n < 30) n = TITLE_MAX_DEFAULT;
+  CH.website.max = n;
+  CH.website.target = Math.max(10, n - 5);
+}
+function saveTitleMaxLen(){
+  var el = document.getElementById('t1-title-max');
+  var n = parseInt(el.value, 10) || TITLE_MAX_DEFAULT;
+  localStorage.setItem('liq_title_max', String(n));
+  applyTitleMaxLen(n);
+}
 var VARIANT_EXCLUSION = '\n\nSIZE EXCLUSION RULE - EXCLUDE SIZE from output:\n- Ignore size values such as "2X", "3X", "XL", "Large", "Size XL", "Medium", "Small", "S/M/L/XL", "10ft", "10 inch", and any numeric size codes\n- This applies even if size appears inside the product name field, key specs field, or any other column\nKeep everything else: brand, part number, product type, color, material, length, gauge, voltage, capacity, certifications, standards, finish, construction features. Only size is stripped.';
 // Round 25: categoryExample, when given, is an already-APPROVED reference
 // title for this exact row's category (either approved just now in this
@@ -2076,7 +2124,7 @@ function checkTitlePrefixFits(chConfig,brand,pn){
 }
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
-window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();var vf=localStorage.getItem('liq_img_vendor');if(vf)document.getElementById('t1-img-vendor').value=vf;});
+window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();var vf=localStorage.getItem('liq_img_vendor');if(vf)document.getElementById('t1-img-vendor').value=vf;var tm=localStorage.getItem('liq_title_max');var tmVal=tm?parseInt(tm,10):TITLE_MAX_DEFAULT;document.getElementById('t1-title-max').value=tmVal;applyTitleMaxLen(tmVal);});
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
   fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[],imgnames:[]};
@@ -2099,7 +2147,7 @@ function clearAll(){
   consistencyResults=[];renderConsistencyResults();
   updateConsolGrid();
   pdfFileObj=null;catalogEntries=[];itemIndex={};familyIndex={};mergedForFileData=[];mergedPreviewRows=[];lastPageTexts={};failedChunks=[];
-  validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
+  validationFlags=[];masterRecords={};familyRecordCache={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
   showMg3RetryBtn(false);
   runState.mg3={resumeFrom:null};
   var uzp=document.getElementById('uz-pdf');if(uzp)uzp.classList.remove('loaded');
@@ -2240,7 +2288,7 @@ function loadFile(f){
       // any merge/master-record work done against whatever spec sheet was
       // loaded before (they were built from the old rows).
       runState={t1:{resumeFrom:null,channel:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
-      mergedForFileData=[];mergedPreviewRows=[];validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
+      mergedForFileData=[];mergedPreviewRows=[];validationFlags=[];masterRecords={};familyRecordCache={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
       showMg3RetryBtn(false);
       renderValidationSummary();
       var mg2rL=document.getElementById('mg2-res');if(mg2rL)mg2rL.classList.remove('on');
@@ -3703,6 +3751,67 @@ var lastHadPageRange = false;
 var validationFlags = [];    // Phase 2: [{baseKey, partNumber, type:'missing'|'conflict', field, excelValue, pdfValue, detail}]
 var masterRecords = {};      // Phase 3: baseKey -> {technical_specs:{}, features:[], applications:[], sources:'...'}
 var masterRecordOrder = [];  // baseKey build order, for the results table and Excel export
+// Round 46 (Ahmed, looking at real results: two sibling drill sizes with
+// near-identical content got slightly different Construction Features /
+// Applications text - "why is it different from this one to the next one,
+// especially if I'm looking one page at a time... only difference in
+// sizes"). Root cause, confirmed in the code: the merge step already
+// copies one catalog page's shared family text (Additional Info 2)
+// identically into every item that page covers - so the SOURCE text really
+// is the same - but Build Master Records still ran one independent AI call
+// per item with no memory of any other item, so each one wrote its own
+// slightly different features/applications phrasing from that same shared
+// text. familyRecordCache fixes this surgically, without touching the AI
+// prompt or call pattern at all: the family is detected for free, for
+// free, from data that already exists (two items with the SAME non-blank
+// Additional Info 2 text are, by construction, the same family) - no new
+// extraction step, no new PDF-reading pass. The FIRST item in a family to
+// get its record built becomes that family's canonical features/
+// applications; every other member of the same family has its own
+// (independently-generated, possibly differently-worded) features/
+// applications silently REPLACED with that canonical pair before being
+// cached into masterRecords - so every family member's Highlights/
+// Description/HTML Table then compose their prose from the exact same
+// source list, not their own independently-synthesized one. Each item's
+// technical_specs (Flute Length, Overall Length, Decimal Equiv, etc.) is
+// deliberately left untouched by this and still generated per item, since
+// those genuinely vary within a family - only features/applications (the
+// open-ended, family-wide narrative content) gets this treatment.
+var familyRecordCache = {}; // familyKey -> {features, applications, sourceBaseKey}
+// Groups rows whose shared catalog family text is literally identical -
+// normalized only for whitespace, so two copies of the same paragraph with
+// a stray double-space or line-break difference still count as one family.
+// Blank/missing family text returns null (no family) on purpose: an item
+// with no shared family text at all must never get silently lumped in with
+// unrelated items just because they're ALSO missing family text.
+function familyKeyFromText(text){
+  var t = String(text||'').trim();
+  if(!t) return null;
+  return t.toLowerCase().replace(/\s+/g,' ');
+}
+// Shared by buildMasterRecords() and retryFailedMasterRecords() so both
+// paths guarantee every member of a detected family ends up with the exact
+// same features/applications text - the first item to reach this for a
+// given familyKey sets the canonical version; every item after that gets
+// its own independently-generated features/applications silently replaced
+// with that canonical pair (rec.familySharedFrom records which item it
+// came from, purely for transparency in the results table/export -
+// nothing reads that field to make a decision). technical_specs is never
+// touched here - it's intentionally left as each item's own, since that's
+// where the real per-item differences (Flute Length, Overall Length, etc.)
+// correctly belong.
+function applyFamilyRecordCache(rec,familyKey,baseKey){
+  if(!familyKey) return rec;
+  var cached=familyRecordCache[familyKey];
+  if(cached){
+    rec.features=cached.features;
+    rec.applications=cached.applications;
+    rec.familySharedFrom=cached.sourceBaseKey;
+  } else {
+    familyRecordCache[familyKey]={features:rec.features,applications:rec.applications,sourceBaseKey:baseKey};
+  }
+  return rec;
+}
 // Round 25c: {baseKey, excelSpecsText, pdfItemText, pdfFamilyText, error} for
 // items whose record-build call failed (transient - empty response, rate
 // limit, etc.) - tracked separately so a single bad item doesn't stop a
@@ -4773,12 +4882,12 @@ async function buildMasterRecords(isResume){
     var bKey=baseItemKey(pn)||pn;
     if(!bKey)return;
     if(!seen[bKey]){
-      seen[bKey]={baseKey:bKey,excelSpecsText:row['Key Specs']||'',pdfItemText:row['Additional Info 1']||'',pdfFamilyText:row['Additional Info 2']||''};
+      seen[bKey]={baseKey:bKey,excelSpecsText:row['Key Specs']||'',pdfItemText:row['Additional Info 1']||'',pdfFamilyText:row['Additional Info 2']||'',familyKey:familyKeyFromText(row['Additional Info 2'])};
       items.push(seen[bKey]);
     }
   });
   var startIdx=(isResume&&runState.mg3.resumeFrom!=null)?runState.mg3.resumeFrom:0;
-  if(!isResume){masterRecords={};masterRecordOrder=[];masterRecordFailures=[];}
+  if(!isResume){masterRecords={};familyRecordCache={};masterRecordOrder=[];masterRecordFailures=[];}
   setMsg('mg3-msg',isResume?('Resuming from item '+(startIdx+1)+'...'):'','info');
   document.getElementById('mg3-res').classList.add('on');
   if(!isResume)showMg3RetryBtn(false);
@@ -4825,6 +4934,7 @@ async function buildMasterRecords(isResume){
         if(hasExcel)sourcesUsed.push('Excel');
         if(hasPdf)sourcesUsed.push('Catalog PDF');
         rec.sources=sourcesUsed.join(' + ');
+        rec=applyFamilyRecordCache(rec,it.familyKey,it.baseKey);
         masterRecords[it.baseKey]=rec;
       }
       if(masterRecordOrder.indexOf(it.baseKey)===-1)masterRecordOrder.push(it.baseKey);
@@ -4853,7 +4963,7 @@ async function buildMasterRecords(isResume){
         showStop('mg3',false);
         return;
       }
-      masterRecordFailures.push({baseKey:it.baseKey,excelSpecsText:it.excelSpecsText,pdfItemText:it.pdfItemText,pdfFamilyText:it.pdfFamilyText,error:err.message||String(err)});
+      masterRecordFailures.push({baseKey:it.baseKey,excelSpecsText:it.excelSpecsText,pdfItemText:it.pdfItemText,pdfFamilyText:it.pdfFamilyText,familyKey:it.familyKey,error:err.message||String(err)});
       renderMasterRecords();
     }
   }
@@ -4912,12 +5022,13 @@ async function retryFailedMasterRecords(){
         if(hasExcel)sourcesUsed.push('Excel');
         if(hasPdf)sourcesUsed.push('Catalog PDF');
         rec.sources=sourcesUsed.join(' + ');
+        rec=applyFamilyRecordCache(rec,it.familyKey,it.baseKey);
         masterRecords[it.baseKey]=rec;
       }
       if(masterRecordOrder.indexOf(it.baseKey)===-1)masterRecordOrder.push(it.baseKey);
       renderMasterRecords();
     }catch(err){
-      masterRecordFailures.push({baseKey:it.baseKey,excelSpecsText:it.excelSpecsText,pdfItemText:it.pdfItemText,pdfFamilyText:it.pdfFamilyText,error:err.message||String(err)});
+      masterRecordFailures.push({baseKey:it.baseKey,excelSpecsText:it.excelSpecsText,pdfItemText:it.pdfItemText,pdfFamilyText:it.pdfFamilyText,familyKey:it.familyKey,error:err.message||String(err)});
     }
     if(i+1<toRetry.length&&!stops.mg3)await new Promise(function(r){setTimeout(r,400);});
   }
@@ -4945,7 +5056,8 @@ function renderMasterRecords(){
     var r=masterRecords[bKey];
     if(!r)continue;
     var specsText=Object.keys(r.technical_specs||{}).map(function(k){return k+': '+r.technical_specs[k];}).join(', ');
-    rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+'</td><td class="td-main">'+esc((r.features||[]).join('; ').slice(0,120))+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+'</td></tr>';
+    var familyNote=r.familySharedFrom?('<br><span class="uz-sub" style="font-size:9px;">&#9851; features/applications shared with '+esc(r.familySharedFrom)+' (same catalog family)</span>'):'';
+    rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+'</td><td class="td-main">'+esc((r.features||[]).join('; ').slice(0,120))+familyNote+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+'</td></tr>';
   }
   // Round 25c: failed items (skipped, not blocked) show up as their own rows
   // so it's visible which items still need "Retry Failed Items" - Product
@@ -5387,7 +5499,7 @@ function mergeData(){
   var backfillMap=buildExcelBackfillMap(fileData,detectedCol||null,stripSuffix);
   mergedForFileData=[];mergedPreviewRows=[];
   validationFlags=[];
-  masterRecords={};masterRecordOrder=[];qaResults=[]; // a fresh merge invalidates any master records/QA built against the old data
+  masterRecords={};familyRecordCache={};masterRecordOrder=[];qaResults=[]; // a fresh merge invalidates any master records/QA built against the old data
   var matchedCount=0;
   // Round 15: tracks which catalog item numbers actually got claimed by an
   // Excel row below, so that after the Excel-driven loop finishes, any
@@ -5514,7 +5626,7 @@ function buildRowsFromCatalogOnly(){
   var brand=document.getElementById('mg-brand').value.trim();
   var seen={};
   mergedForFileData=[];mergedPreviewRows=[];
-  validationFlags=[];masterRecords={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
+  validationFlags=[];masterRecords={};familyRecordCache={};masterRecordOrder=[];masterRecordFailures=[];qaResults=[];
   showMg3RetryBtn(false);
   renderValidationSummary();
   catalogEntries.forEach(function(e){
