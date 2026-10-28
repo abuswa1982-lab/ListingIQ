@@ -401,6 +401,32 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
             </div>
             <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Title</th><th>URL Slug</th><th></th></tr></thead><tbody id="t1-slug-tbody"></tbody></table></div>
           </div>
+          <!-- Round 45 (Ahmed: "once the product name is clicked... create the
+               file name, the custom file name, and after that, we'll create
+               the images, names, and all the stuff... in one shot"): a third
+               click, after URL Slugs, that builds the per-item image file
+               names (Main, Thumbnail, up to 3 Alt images - "we cannot go more
+               than 4 images") straight from the same already-generated slug,
+               so naming stays consistent and nothing has to be reinvented by
+               hand. The "Image folder name" field is just the vendor/brand
+               subfolder ("depends on the manufacturer... if it's Port West or
+               whatever... we can change that name") - typed once per run,
+               remembered for next time, same as the API key. -->
+          <div style="margin-top:1rem;">
+            <div class="field" style="margin-bottom:.6rem;max-width:320px;">
+              <label>Image folder name <span style="color:var(--faint);font-size:10px;">(e.g. _radians, _alfa - optional)</span></label>
+              <input type="text" id="t1-img-vendor" placeholder="e.g. _radians" oninput="saveVendorFolder()">
+            </div>
+            <button class="btn btn-gold" onclick="genImageNames()">Generate Image File Names</button>
+          </div>
+          <div class="res-block" id="t1-img-res" style="margin-top:1rem;">
+            <div class="res-hdr"><div class="res-title">Image File Names</div><div class="res-meta" id="t1-img-meta"></div></div>
+            <div class="exp-row">
+              <button class="btn-sm" onclick="expImgCSV()">&#8595; CSV</button>
+              <button class="btn-sm" onclick="expImgXLSX()">&#8595; Excel</button>
+            </div>
+            <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Part Number</th><th>Main Image</th><th>Thumbnail</th><th>Alt 1</th><th>Alt 2</th><th>Alt 3</th><th>Alt Text</th></tr></thead><tbody id="t1-img-tbody"></tbody></table></div>
+          </div>
         </div>
       </div>
     </div>
@@ -548,7 +574,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
 <script>
 var fileData = null;
 var stops = {t1:false,t2:false,t3:false,t4:false};
-var results = {t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[]};
+var results = {t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[],imgnames:[]};
 // resumeFrom is the row index where a run stopped (failure or user-stop). null = no pending resume.
 var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}, mg3:{resumeFrom:null}};
 // Applied to every content-generation prompt (titles, highlights, meta
@@ -2050,10 +2076,10 @@ function checkTitlePrefixFits(chConfig,brand,pn){
 }
 function saveKey(){var v=document.getElementById('api-key').value.trim();if(v){localStorage.setItem('liq_key',v);alert('API key saved.');}}
 function getKey(){return localStorage.getItem('liq_key')||document.getElementById('api-key').value.trim();}
-window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();});
+window.addEventListener('load',function(){var k=localStorage.getItem('liq_key');if(k)document.getElementById('api-key').value=k;updateConsolGrid();updateMg3Gate();var crb=document.getElementById('t1-catreview-all');if(crb)crb.checked=getReviewAllSetting();var vf=localStorage.getItem('liq_img_vendor');if(vf)document.getElementById('t1-img-vendor').value=vf;});
 function clearAll(){
   if(!confirm('Clear all loaded data and results?'))return;
-  fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[]};
+  fileData=null;results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[],imgnames:[]};
   t1Failures=[];
   showT1RetryBtn(false);
   runState={t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFrom:null}, t3:{resumeFrom:null}, t4:{resumeFrom:null}};
@@ -2067,6 +2093,7 @@ function clearAll(){
     showResume(t,false);
   });
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
+  var ir=document.getElementById('t1-img-res');if(ir)ir.classList.remove('on');
   var tfr=document.getElementById('tf-res');if(tfr)tfr.classList.remove('on');
   setMsg('tf-msg','','');
   consistencyResults=[];renderConsistencyResults();
@@ -3009,6 +3036,69 @@ function genSlugs(){
   document.getElementById('t1-slug-meta').textContent=results.slugs.length+' slug(s)';
   document.getElementById('t1-slug-res').classList.add('on');
 }
+// Round 45: Image File Names - built from each item's already-generated URL
+// Slug, so the website title, the URL, and the image file names always stay
+// in sync with each other instead of being named separately by hand. One
+// Main image + Thumbnail + up to 3 Alt images per item ("we cannot go more
+// than 4 images" - Ahmed), each just the slug plus a fixed suffix - nothing
+// invented per item, so re-running this always reproduces the same names for
+// the same title. Alt Text reuses the generated Website Title directly
+// (Round 44's AI title, not a separate plain-text pass) so the image alt
+// attribute matches what's already been reviewed/approved for that item.
+function saveVendorFolder(){
+  var v=document.getElementById('t1-img-vendor').value.trim();
+  localStorage.setItem('liq_img_vendor',v);
+}
+function getVendorFolder(){
+  var el=document.getElementById('t1-img-vendor');
+  return el?el.value.trim():(localStorage.getItem('liq_img_vendor')||'');
+}
+function genImageNames(){
+  if(!results.slugs.length){alert('Generate URL Slugs first (above) - image file names are built from the same slug.');return;}
+  var vendor=getVendorFolder();
+  var folder='assets/images/'+(vendor?vendor+'/':'');
+  var thumbFolder=folder+'thumbnails/';
+  results.imgnames=[];
+  for(var i=0;i<results.slugs.length;i++){
+    var s=results.slugs[i];
+    var slug=s.slug||'';
+    var main=slug+'.jpg',thumb=slug+'_thumb.jpg',alt1=slug+'-alt1.jpg',alt2=slug+'-alt2.jpg',alt3=slug+'-alt3.jpg';
+    results.imgnames.push({index:s.index,partNumber:s.partNumber||'',title:s.title||'',slug:slug,
+      mainFile:main,mainPath:folder+main,
+      thumbFile:thumb,thumbPath:thumbFolder+thumb,
+      alt1File:alt1,alt1Path:folder+alt1,
+      alt2File:alt2,alt2Path:folder+alt2,
+      alt3File:alt3,alt3Path:folder+alt3,
+      altText:s.title||''});
+  }
+  var rows='';
+  for(var j=0;j<results.imgnames.length;j++){
+    var r=results.imgnames[j];
+    rows+='<tr><td class="td-num">'+r.index+'</td><td class="td-pn">'+esc(r.partNumber)+'</td>'+
+      '<td>'+esc(r.mainFile)+'</td><td>'+esc(r.thumbFile)+'</td>'+
+      '<td>'+esc(r.alt1File)+'</td><td>'+esc(r.alt2File)+'</td><td>'+esc(r.alt3File)+'</td>'+
+      '<td class="td-main">'+esc(r.altText)+'</td></tr>';
+  }
+  document.getElementById('t1-img-tbody').innerHTML=rows;
+  document.getElementById('t1-img-meta').textContent=results.imgnames.length+' item(s)';
+  document.getElementById('t1-img-res').classList.add('on');
+  updateConsolGrid();
+}
+function expImgCSV(){
+  if(!results.imgnames.length)return;
+  var rows=[['#','Part Number','Main Image','Main Path','Thumbnail','Thumbnail Path','Alt 1','Alt 2','Alt 3','Alt Text']];
+  results.imgnames.forEach(function(r){rows.push([r.index,r.partNumber||'',r.mainFile||'',r.mainPath||'',r.thumbFile||'',r.thumbPath||'',r.alt1File||'',r.alt2File||'',r.alt3File||'',r.altText||'']);});
+  var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  dl(new Blob([csv],{type:'text/csv'}),'image-file-names.csv');
+}
+function expImgXLSX(){
+  if(!results.imgnames.length)return;
+  var wb2=XLSX.utils.book_new();
+  var rows=[['#','Part Number','Main Image','Main Path','Thumbnail','Thumbnail Path','Alt 1','Alt 2','Alt 3','Alt Text']];
+  results.imgnames.forEach(function(r){rows.push([r.index,r.partNumber||'',r.mainFile||'',r.mainPath||'',r.thumbFile||'',r.thumbPath||'',r.alt1File||'',r.alt2File||'',r.alt3File||'',r.altText||'']);});
+  var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:6},{wch:18},{wch:45},{wch:60},{wch:50},{wch:70},{wch:45},{wch:45},{wch:45},{wch:60}];
+  XLSX.utils.book_append_sheet(wb2,ws,'Image File Names');XLSX.writeFile(wb2,'image-file-names.xlsx');
+}
 // ---- TAB 2: Highlights ----
 async function runTab2(isResume){
   var err=validate();if(err){setMsg('t2-msg',err,'error');return;}
@@ -3276,7 +3366,7 @@ function cp(btn){
   setTimeout(function(){btn.textContent=orig;},1500);
 }
 function updateConsolGrid(){
-  var items=[{key:'t1',label:'Product Names'},{key:'slugs',label:'URL Slugs'},{key:'t2',label:'Highlights'},{key:'t3',label:'Descriptions'},{key:'t4',label:'HTML Tables'}];
+  var items=[{key:'t1',label:'Product Names'},{key:'slugs',label:'URL Slugs'},{key:'imgnames',label:'Image File Names'},{key:'t2',label:'Highlights'},{key:'t3',label:'Descriptions'},{key:'t4',label:'HTML Tables'}];
   var html='';
   items.forEach(function(item){
     var count=results[item.key].length;
@@ -3364,6 +3454,10 @@ function runConsolidate(){
   if(results.t4.length){var flr=[['Part Number','Category','Filters']];results.t4.slice().sort(function(a,b){var ca=pnMap[a.partNumber]?pnMap[a.partNumber].filter_category||'':'';var cb=pnMap[b.partNumber]?pnMap[b.partNumber].filter_category||'':'';return ca<cb?-1:(ca>cb?1:0);}).forEach(function(r){var pnFlRow=r.partNumber||'';flr.push([pnFlRow,pnMap[pnFlRow]?pnMap[pnFlRow].filter_category||'':'',pnMap[pnFlRow]?pnMap[pnFlRow].filters||'':'']);});var wsFl=XLSX.utils.aoa_to_sheet(flr);wsFl['!cols']=[{wch:18},{wch:30},{wch:90}];XLSX.utils.book_append_sheet(wb,wsFl,'Filters');}
   if(fileData&&fileData.length){var sdr=[['Part Number','Structured Data (JSON-LD)']];fileData.forEach(function(row){var pn=getPN(row)||'';sdr.push([pn,pnMap[pn]?pnMap[pn].structured_data||'':'']);});var wsSd=XLSX.utils.aoa_to_sheet(sdr);wsSd['!cols']=[{wch:18},{wch:80}];XLSX.utils.book_append_sheet(wb,wsSd,'Structured Data');}
   if(results.slugs.length){var slr=[['Part Number','Title','URL Slug']];results.slugs.forEach(function(r){slr.push([r.partNumber||'',r.title||'',r.slug||'']);});var wsl=XLSX.utils.aoa_to_sheet(slr);wsl['!cols']=[{wch:18},{wch:50},{wch:55}];XLSX.utils.book_append_sheet(wb,wsl,'URL Slugs');}
+  // Round 45: Image File Names - same shape as the standalone export, folded
+  // into the one-click "Generate All" workbook too, right next to URL Slugs
+  // since it's built from the same slug.
+  if(results.imgnames.length){var imr=[['Part Number','Main Image','Main Path','Thumbnail','Thumbnail Path','Alt 1','Alt 2','Alt 3','Alt Text']];results.imgnames.forEach(function(r){imr.push([r.partNumber||'',r.mainFile||'',r.mainPath||'',r.thumbFile||'',r.thumbPath||'',r.alt1File||'',r.alt2File||'',r.alt3File||'',r.altText||'']);});var wsIm=XLSX.utils.aoa_to_sheet(imr);wsIm['!cols']=[{wch:18},{wch:45},{wch:60},{wch:50},{wch:70},{wch:45},{wch:45},{wch:45},{wch:60}];XLSX.utils.book_append_sheet(wb,wsIm,'Image File Names');}
   XLSX.writeFile(wb,'ListingIQ-Export.xlsx');
   var qaNote=qaResults.length?(' '+qaResults.length+' potential issue(s) found by the deterministic checks (see QA Issues panel below) - export still completed, this is informational only.'):' No issues found by the deterministic checks.';
   setMsg('t5-msg','Export complete.'+qaNote,qaResults.length?'warn':'success');
@@ -3491,18 +3585,50 @@ function pairsToTableHtml(pairs){
 // own name as a raw label) so a future item whose Product Type matches it
 // picks up this template automatically; an existing category's exampleTable
 // is only ever replaced after an explicit confirm, never silently.
+// Round 45 (Ahmed: "we want to look at the filter category, or the last
+// tab anyways... it's going to pre-populate"): his real file - a full
+// item-master/type-suggestion workbook with several working tabs - carries
+// the actual Category/Filter data on a tab literally named "Category
+// Library", not necessarily the first sheet (this importer used to always
+// read wb.SheetNames[0], which happened to work for a plain round-40-style
+// single-sheet export but silently grabbed the wrong tab - zero categories,
+// no error - on a multi-tab file like his). Also tolerates a "Filter"
+// (singular) header, since his Category Library tab's field-set-template
+// column is named that way, not "Filters" (plural) - a one-letter mismatch
+// that would otherwise also silently produce zero matches.
+function findRowValueCI(row,names){
+  var keys = Object.keys(row);
+  for(var n=0;n<names.length;n++){
+    for(var k=0;k<keys.length;k++){
+      if(keys[k].trim().toLowerCase()===names[n]) return row[keys[k]];
+    }
+  }
+  return undefined;
+}
+function pickFiltersImportSheet(wb){
+  for(var i=0;i<wb.SheetNames.length;i++){
+    if(wb.SheetNames[i].trim().toLowerCase()==='category library') return wb.Sheets[wb.SheetNames[i]];
+  }
+  for(var j=0;j<wb.SheetNames.length;j++){
+    var testRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[j]]);
+    if(testRows.length && findRowValueCI(testRows[0],['category'])!==undefined && (findRowValueCI(testRows[0],['filters'])!==undefined || findRowValueCI(testRows[0],['filter'])!==undefined)){
+      return wb.Sheets[wb.SheetNames[j]];
+    }
+  }
+  return wb.Sheets[wb.SheetNames[0]];
+}
 function importFiltersFile(file){
   if(!file) return;
   var reader = new FileReader();
   reader.onload = function(e){
     try{
       var wb = XLSX.read(e.target.result,{type:'array'});
-      var ws = wb.Sheets[wb.SheetNames[0]];
+      var ws = pickFiltersImportSheet(wb);
       var rows = XLSX.utils.sheet_to_json(ws);
       var byCategory = {};
       rows.forEach(function(row){
-        var cat = String(row['Category']||'').trim();
-        var filters = String(row['Filters']||'').trim();
+        var cat = String(findRowValueCI(row,['category'])||'').trim();
+        var filters = String(findRowValueCI(row,['filters','filter'])||'').trim();
         if(!cat || !filters) return;
         if(!byCategory[cat] || filters.length > byCategory[cat].length) byCategory[cat] = filters;
       });
@@ -5422,12 +5548,13 @@ function useMergedData(){
   if(!mergedForFileData.length){alert('Run the merge first.');return;}
   var scoped=getScopedMergedRows();
   fileData=scoped;
-  results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[]};
+  results={t1:[],t2:[],t3:[],t4:[],slugs:[],tf:[],imgnames:[]};
   t1Failures=[];
   showT1RetryBtn(false);
   runState.t1={resumeFrom:null,channel:null};runState.t2={resumeFrom:null};runState.t3={resumeFrom:null};runState.t4={resumeFrom:null};
   ['t1','t2','t3','t4'].forEach(function(t){var r=document.getElementById(t+'-res');if(r)r.classList.remove('on');showResume(t,false);});
   var sr=document.getElementById('t1-slug-res');if(sr)sr.classList.remove('on');
+  var ir=document.getElementById('t1-img-res');if(ir)ir.classList.remove('on');
   var tfr2=document.getElementById('tf-res');if(tfr2)tfr2.classList.remove('on');
   setMsg('tf-msg','','');
   consistencyResults=[];renderConsistencyResults();
