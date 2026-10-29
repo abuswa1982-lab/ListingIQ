@@ -3812,6 +3812,136 @@ function applyFamilyRecordCache(rec,familyKey,baseKey){
   }
   return rec;
 }
+// Round 47 (Ahmed, real data after round 46: "Black Oxide & Gold Finish" vs
+// "black oxide & gold finish", "Heavy Duty" vs "Heavy Duty Construction",
+// "3-Flat Shank Design" vs "3-Flat Shank Design (On 3/16\" and Larger)" -
+// three different family members writing the SAME real spec with different
+// casing/wording, even after round 46, because that round only synced
+// features/applications and deliberately left technical_specs untouched
+// (some specs, like Flute Length, genuinely differ per item). This is a
+// free, deterministic, zero-extra-API-call pass over technical_specs, run
+// once after a family's members are all built - Ahmed specifically asked
+// to keep cost down rather than add another AI call per family, so this is
+// pure string comparison, no model call. It only touches values that are
+// near-duplicates of each other within the same family AND the same spec
+// field:
+//   - same text except for casing/whitespace -> adopt the most common casing
+//   - one value is a shorter/longer near-duplicate of an already-recognized
+//     majority value (one text is a substring of the other, e.g. "Heavy
+//     Duty" inside "Heavy Duty Construction") -> the minority phrasing
+//     adopts the majority phrasing
+// It deliberately leaves alone any two values that are NOT near-duplicates
+// of each other (e.g. "No flats on shank" vs "3-Flat Shank Design..." -
+// genuinely different real facts for different sizes within the same
+// family) - those must keep varying; forcing them to match would be wrong.
+// A value that contains BOTH of two already-recognized majority phrasings
+// at once (e.g. "...3-Flat Shank Design..., No flats on shank") is the
+// separate self-contradictory-value bug Ahmed found - one item stating two
+// mutually exclusive facts together. This pass does NOT guess which one is
+// correct for that item (silently picking one would be exactly the kind of
+// unverified guess the "STRICT RULE" at the top of buildMasterRecordPrompt
+// exists to avoid) - it flags the field (rec.specConflicts) so it's visible
+// in the results table, and leaves the value untouched. The real fix for
+// NEW contradictions is the instruction added to buildMasterRecordPrompt()
+// above, which tells the model to resolve size/variant-dependent facts to
+// the one that applies to this specific item in the first place.
+function normalizeSpecKey(v){
+  return String(v||'').trim().toLowerCase().replace(/\s+/g,' ').replace(/[.,;]+$/,'');
+}
+function normalizeFamilyTechnicalSpecs(baseKeys){
+  var byFamily={};
+  (baseKeys||[]).forEach(function(bKey){
+    var r=masterRecords[bKey];
+    if(!r||!r.familyKey)return;
+    if(!byFamily[r.familyKey])byFamily[r.familyKey]=[];
+    byFamily[r.familyKey].push(bKey);
+  });
+  Object.keys(byFamily).forEach(function(fKey){
+    var members=byFamily[fKey];
+    if(members.length<2)return;
+    var allKeys={};
+    members.forEach(function(bKey){
+      var specs=masterRecords[bKey].technical_specs||{};
+      Object.keys(specs).forEach(function(k){allKeys[k]=true;});
+    });
+    Object.keys(allKeys).forEach(function(specKey){
+      var groups={}; // normText -> [{bKey, raw}]
+      members.forEach(function(bKey){
+        var raw=(masterRecords[bKey].technical_specs||{})[specKey];
+        if(raw===undefined||raw===null||!String(raw).trim())return;
+        var norm=normalizeSpecKey(raw);
+        if(!groups[norm])groups[norm]=[];
+        groups[norm].push({bKey:bKey,raw:String(raw)});
+      });
+      var normTexts=Object.keys(groups);
+      if(!normTexts.length)return;
+      // Nothing to do only if every member already has the byte-identical
+      // raw text - the common case (most fields need no touch at all).
+      var allRawSame=normTexts.length===1&&(function(){
+        var raws=groups[normTexts[0]].map(function(e){return e.raw;});
+        return raws.every(function(r){return r===raws[0];});
+      })();
+      if(allRawSame)return;
+      // Recognized clusters = 2+ members already agreeing on the same
+      // (case/whitespace-normalized) text - real, established values.
+      var clusters=normTexts.filter(function(n){return groups[n].length>=2;});
+      function canonicalCasingFor(norm){
+        var counts={},best=null,bestN=0;
+        groups[norm].forEach(function(e){counts[e.raw]=(counts[e.raw]||0)+1;});
+        groups[norm].forEach(function(e){if(counts[e.raw]>bestN){best=e.raw;bestN=counts[e.raw];}});
+        return best;
+      }
+      if(normTexts.length>1){
+        normTexts.forEach(function(norm){
+          var group=groups[norm];
+          var isRecognizedCluster=clusters.indexOf(norm)!==-1;
+          var containingClusters=clusters.filter(function(c){return c!==norm && norm.indexOf(c)!==-1;});
+          if(containingClusters.length>=2){
+            group.forEach(function(e){
+              var r=masterRecords[e.bKey];
+              r.specConflicts=r.specConflicts||[];
+              if(r.specConflicts.indexOf(specKey)===-1)r.specConflicts.push(specKey);
+            });
+            return;
+          }
+          if(isRecognizedCluster)return; // a real, established value - leave it
+          var match=null;
+          for(var i=0;i<clusters.length;i++){
+            var c=clusters[i];
+            if(norm.indexOf(c)!==-1||c.indexOf(norm)!==-1){match=c;break;}
+          }
+          if(match){
+            var canon=canonicalCasingFor(match);
+            group.forEach(function(e){
+              var r=masterRecords[e.bKey];
+              if(r.technical_specs[specKey]!==canon){
+                r.technical_specs[specKey]=canon;
+                r.specsNormalized=r.specsNormalized||[];
+                if(r.specsNormalized.indexOf(specKey)===-1)r.specsNormalized.push(specKey);
+              }
+            });
+          }
+        });
+      }
+      // Also align casing within each already-recognized cluster itself -
+      // members already agree on the words, but may still differ in case
+      // (this is what catches Ahmed's "Black Oxide & Gold Finish" vs
+      // "black oxide & gold finish" - every member normalizes to the same
+      // text, so there's only ever one cluster, but the raw casing varies).
+      clusters.forEach(function(norm){
+        var canon=canonicalCasingFor(norm);
+        groups[norm].forEach(function(e){
+          var r=masterRecords[e.bKey];
+          if(r.technical_specs[specKey]!==canon){
+            r.technical_specs[specKey]=canon;
+            r.specsNormalized=r.specsNormalized||[];
+            if(r.specsNormalized.indexOf(specKey)===-1)r.specsNormalized.push(specKey);
+          }
+        });
+      });
+    });
+  });
+}
 // Round 25c: {baseKey, excelSpecsText, pdfItemText, pdfFamilyText, error} for
 // items whose record-build call failed (transient - empty response, rate
 // limit, etc.) - tracked separately so a single bad item doesn't stop a
@@ -4861,6 +4991,7 @@ function buildMasterRecordPrompt(excelSpecsText,pdfItemText,pdfFamilyText,confli
   '- features: short phrases describing what the product IS or HAS.\n'+
   '- applications: short phrases describing what it\'s used for - pull these from "Recommended Uses"/"Applications"-style fields in either source, not just catalog prose.\n'+
   '- The "general to this item\'s product line" catalog data may describe a GROUP of different item types shown together under one shared heading (for example, one heading covering several pilot drills AND a separate extension, or several arbors AND an adaptor). Only pull a spec, feature, or product-form claim from that family text if it is actually consistent with what the CATALOG DATA - specific to this item (or the spec sheet) says this exact item is. Never let the family text override, dilute, or contradict the item\'s own specific data - e.g. do not describe an item as an "Extension" (or give it an extension\'s length) if its own specific text describes it as a pilot drill, and do not drop an item\'s own stated form (e.g. "Extension") in favor of a generic phrase copied from the shared family heading just because that heading mentions it.\n'+
+  '- If the family-wide catalog data describes a fact that depends on THIS item\'s own size/variant (e.g. "sizes 3/16\\" and larger have a 3-flat shank, smaller sizes have no flats"), determine which single case actually applies to this specific item using its own spec sheet/catalog data (its size, its own stated attributes), and state ONLY that one resolved fact in technical_specs. Never state two mutually exclusive possibilities together in the same field (e.g. never write a Shank Type of "3-flat shank design, no flats on shank") - pick the one that is actually true for this item.\n'+
   '- If genuinely no data exists for one of the three fields, use an empty object/array for it rather than guessing.\n'+
   '- Respond with ONLY the JSON object. No markdown, no explanation, no code fences.';
 }
@@ -4935,6 +5066,7 @@ async function buildMasterRecords(isResume){
         if(hasPdf)sourcesUsed.push('Catalog PDF');
         rec.sources=sourcesUsed.join(' + ');
         rec=applyFamilyRecordCache(rec,it.familyKey,it.baseKey);
+        rec.familyKey=it.familyKey;
         masterRecords[it.baseKey]=rec;
       }
       if(masterRecordOrder.indexOf(it.baseKey)===-1)masterRecordOrder.push(it.baseKey);
@@ -4967,6 +5099,8 @@ async function buildMasterRecords(isResume){
       renderMasterRecords();
     }
   }
+  normalizeFamilyTechnicalSpecs(masterRecordOrder.slice());
+  renderMasterRecords();
   setProg('mg3',100,'');
   setTimeout(function(){setProg('mg3',0,'');},400);
   var failNote=masterRecordFailures.length?(' '+masterRecordFailures.length+' item(s) could not be built (shown below, click "Retry Failed Items" to try again) - Product Name and the other tabs will use the raw merged row for those instead, so nothing is blocked.'):'';
@@ -5023,6 +5157,7 @@ async function retryFailedMasterRecords(){
         if(hasPdf)sourcesUsed.push('Catalog PDF');
         rec.sources=sourcesUsed.join(' + ');
         rec=applyFamilyRecordCache(rec,it.familyKey,it.baseKey);
+        rec.familyKey=it.familyKey;
         masterRecords[it.baseKey]=rec;
       }
       if(masterRecordOrder.indexOf(it.baseKey)===-1)masterRecordOrder.push(it.baseKey);
@@ -5032,6 +5167,7 @@ async function retryFailedMasterRecords(){
     }
     if(i+1<toRetry.length&&!stops.mg3)await new Promise(function(r){setTimeout(r,400);});
   }
+  normalizeFamilyTechnicalSpecs(masterRecordOrder.slice());
   setProg('mg3',100,'');
   setTimeout(function(){setProg('mg3',0,'');},400);
   var failNote=masterRecordFailures.length?(' '+masterRecordFailures.length+' item(s) still could not be built.'):' All previously failed items were built successfully.';
@@ -5057,7 +5193,9 @@ function renderMasterRecords(){
     if(!r)continue;
     var specsText=Object.keys(r.technical_specs||{}).map(function(k){return k+': '+r.technical_specs[k];}).join(', ');
     var familyNote=r.familySharedFrom?('<br><span class="uz-sub" style="font-size:9px;">&#9851; features/applications shared with '+esc(r.familySharedFrom)+' (same catalog family)</span>'):'';
-    rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+'</td><td class="td-main">'+esc((r.features||[]).join('; ').slice(0,120))+familyNote+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+'</td></tr>';
+    var specNormNote=(r.specsNormalized&&r.specsNormalized.length)?('<br><span class="uz-sub" style="font-size:9px;">&#9851; '+esc(r.specsNormalized.join(', '))+' wording aligned to match the rest of this family</span>'):'';
+    var specConflictNote=(r.specConflicts&&r.specConflicts.length)?('<br><span class="uz-sub" style="font-size:9px;color:#b45309;">&#9888; '+esc(r.specConflicts.join(', '))+' states two conflicting values for this item - needs a manual check</span>'):'';
+    rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+specNormNote+specConflictNote+'</td><td class="td-main">'+esc((r.features||[]).join('; ').slice(0,120))+familyNote+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+'</td></tr>';
   }
   // Round 25c: failed items (skipped, not blocked) show up as their own rows
   // so it's visible which items still need "Retry Failed Items" - Product
