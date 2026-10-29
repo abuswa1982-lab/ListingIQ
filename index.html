@@ -3901,6 +3901,33 @@ var masterRecordOrder = [];  // baseKey build order, for the results table and E
 // those genuinely vary within a family - only features/applications (the
 // open-ended, family-wide narrative content) gets this treatment.
 var familyRecordCache = {}; // familyKey -> {features, applications, sourceBaseKey}
+// Round 52 (Ahmed, real screenshots: Material blank on some items, worded
+// two different ways on others, within one family, even after rounds 47/49
+// - because round 47/49's merge only catches NEAR-DUPLICATE wording (one
+// value literally contains the other); two differently-worded restatements
+// of the same family-wide fact (e.g. "Premium High-Speed Steel (M-7
+// molybdenum)" vs "Premium grade M-7 molybdenum high-speed steel" - neither
+// is a substring of the other) survive as two "legitimately different"
+// established clusters, which the round-48/50 family-template mechanism
+// then (correctly by its own logic, wrongly in outcome) reads as a genuine
+// per-item variant - and a member whose own call produced no value at all
+// for that field (the "completely blank" symptom) was never even touched
+// by that wording-comparison pass. Ahmed's explicit instruction: this must
+// generalize to ANY product category the app ever sees, not be hardcoded
+// to "Material" or drill bits specifically. So instead of trying to guess
+// similarity from wording, buildMasterRecordPrompt() now asks the model
+// itself to tag, per technical_specs field, whether that field's value
+// came from the FAMILY-WIDE catalog text (same for the whole product
+// line) or from this item's OWN specific text/spec sheet (genuinely
+// per-item) - the one piece of information that actually settles the
+// question, straight from the same sources already being read, no new
+// field names baked into the app. See applyFamilySourcedSpecs() below,
+// which uses this tagging to force-share (and backfill) these fields
+// across a family the same free, zero-extra-API-call way this cache
+// already force-shares features/applications; normalizeFamilyTechnicalSpecs()
+// remains as a safety net for the (hopefully rare) case where the model
+// didn't tag a field that should have been, or for legacy master records
+// built before this round.
 // Groups rows whose shared catalog family text is literally identical -
 // normalized only for whitespace, so two copies of the same paragraph with
 // a stray double-space or line-break difference still count as one family.
@@ -3949,6 +3976,90 @@ function applyFamilyRecordCache(rec,familyKey,baseKey){
     familyRecordCache[familyKey]={features:rec.features,applications:rec.applications,sourceBaseKey:baseKey};
   }
   return rec;
+}
+// Round 52 (Ahmed, real screenshots: Material blank on some items, worded
+// two different ways on others, within one family, even after rounds
+// 47/49 - because round 47/49's merge only catches NEAR-DUPLICATE wording
+// (one value literally contains the other). Two differently-worded
+// restatements of the same family-wide fact (e.g. "Premium High-Speed
+// Steel (M-7 molybdenum)" vs "Premium grade M-7 molybdenum high-speed
+// steel" - neither is a substring of the other), or an item where the
+// model simply didn't carry the family-wide fact into its own
+// technical_specs at all, both survive rounds 47/49 untouched - the first
+// because it's not a recognized near-duplicate, the second because
+// there's nothing there to normalize. Ahmed's explicit instruction: this
+// must generalize to ANY product category the app ever sees, not be
+// hardcoded to "Material" or drill bits specifically. So instead of
+// guessing similarity from wording, buildMasterRecordPrompt() now asks the
+// model itself to tag, per technical_specs field, whether that field's
+// value came from the FAMILY-WIDE catalog text (same for the whole
+// product line) or this item's OWN specific text/spec sheet (genuinely
+// per-item) - the one piece of information that actually settles the
+// question, straight from the same sources already being read, no new
+// field names baked into the app.
+//
+// This is a free, deterministic POST-PASS (same zero-extra-API-call
+// philosophy as normalizeFamilyTechnicalSpecs) run once after every member
+// of a family has been built, so it can see every member's own tagging
+// before deciding anything - unlike a running cache built item-by-item
+// during the loop, this correctly BACKFILLS a field onto a member who
+// didn't produce it at all (the "completely blank" symptom Ahmed saw),
+// not just one who produced it with different wording. For each family,
+// every technical_specs field name that ANY member tagged as family-wide
+// gets ONE canonical value (the first non-empty value found, in item
+// order, preferring a member that itself tagged the field) force-written
+// onto EVERY member of that family - including members whose own call
+// never produced that field at all, and completely replacing reliance on
+// wording-similarity heuristics for these specific fields.
+// rec.familySpecSharedFrom records, per shared field, which item's value
+// it came from - same transparency convention as rec.familySharedFrom,
+// read only by the results table, never by logic.
+function applyFamilySourcedSpecs(baseKeys){
+  var byFamily={};
+  (baseKeys||[]).forEach(function(bKey){
+    var r=masterRecords[bKey];
+    if(!r||!r.familyKey)return;
+    if(!byFamily[r.familyKey])byFamily[r.familyKey]=[];
+    byFamily[r.familyKey].push(bKey);
+  });
+  Object.keys(byFamily).forEach(function(fKey){
+    var members=byFamily[fKey];
+    if(members.length<2)return;
+    var fieldNames={};
+    members.forEach(function(bKey){
+      (masterRecords[bKey].familySourcedKeys||[]).forEach(function(k){fieldNames[k]=true;});
+    });
+    Object.keys(fieldNames).forEach(function(fieldName){
+      var canonVal=null,canonFrom=null;
+      // Prefer a value from a member that itself tagged this field as
+      // family-wide; fall back to any non-empty value if none did.
+      for(var pass=0;pass<2&&canonVal===null;pass++){
+        for(var i=0;i<members.length;i++){
+          var bKey=members[i];
+          var r=masterRecords[bKey];
+          var v=(r.technical_specs||{})[fieldName];
+          if(v===undefined||v===null||!String(v).trim())continue;
+          var taggedHere=(r.familySourcedKeys||[]).indexOf(fieldName)!==-1;
+          if(pass===0&&!taggedHere)continue;
+          canonVal=v;canonFrom=bKey;break;
+        }
+      }
+      if(canonVal===null)return; // no member has any value for this field at all
+      members.forEach(function(bKey){
+        var r=masterRecords[bKey];
+        r.technical_specs=r.technical_specs||{};
+        if(r.technical_specs[fieldName]!==canonVal){
+          r.technical_specs[fieldName]=canonVal;
+          r.specsNormalized=r.specsNormalized||[];
+          if(r.specsNormalized.indexOf(fieldName)===-1)r.specsNormalized.push(fieldName);
+        }
+        if(bKey!==canonFrom){
+          r.familySpecSharedFrom=r.familySpecSharedFrom||{};
+          r.familySpecSharedFrom[fieldName]=canonFrom;
+        }
+      });
+    });
+  });
 }
 // Round 47 (Ahmed, real data after round 46: "Black Oxide & Gold Finish" vs
 // "black oxide & gold finish", "Heavy Duty" vs "Heavy Duty Construction",
@@ -5160,9 +5271,10 @@ function buildMasterRecordPrompt(excelSpecsText,pdfItemText,pdfFamilyText,confli
   'CATALOG DATA - general to this item\'s product line (may or may not apply to this specific item - use judgment):\n'+(pdfFamilyText||'(none)')+'\n\n'+
   'KNOWN CONFLICTS between the two sources (do not silently pick one - if a field below is a conflict, include BOTH values in technical_specs, clearly labeled by source, e.g. "Length (spec sheet)": "6\\"", "Length (catalog)": "4\\""):\n'+conflictText+'\n\n'+
   'Combine everything above into one clean structured record:\n'+
-  '{"technical_specs": {"<field name>": "<value>", ...}, "features": ["<short 2-5 word phrase>", ...], "applications": ["<short 2-5 word phrase>", ...]}\n\n'+
+  '{"technical_specs": {"<field name>": "<value>", ...}, "family_wide_fields": ["<field name>", ...], "features": ["<short 2-5 word phrase>", ...], "applications": ["<short 2-5 word phrase>", ...]}\n\n'+
   'RULES:\n'+
   '- technical_specs: every measurable/nameable spec present in either source. Deduplicate if both sources say the same thing; if they conflict, include both as described above.\n'+
+  '- family_wide_fields: list the technical_specs field NAMES (exactly as you wrote them above) whose value you took from the "general to this item\'s product line" catalog text - i.e. the value describes the whole product line/family the same way for every item in it, not something specific to this one item (e.g. a shared material, finish, or construction description that applies line-wide). Do NOT list a field whose value is specific to this item (e.g. this item\'s own size, length, weight, or anything that genuinely varies between items in the same line). If nothing qualifies, use an empty array. This works the same way for any kind of product - judge it purely from whether the source text you pulled that value from was the shared family text or this item\'s own specific text, never from the field\'s name.\n'+
   '- features: short phrases describing what the product IS or HAS.\n'+
   '- applications: short phrases describing what it\'s used for - pull these from "Recommended Uses"/"Applications"-style fields in either source, not just catalog prose.\n'+
   '- The "general to this item\'s product line" catalog data may describe a GROUP of different item types shown together under one shared heading (for example, one heading covering several pilot drills AND a separate extension, or several arbors AND an adaptor). Only pull a spec, feature, or product-form claim from that family text if it is actually consistent with what the CATALOG DATA - specific to this item (or the spec sheet) says this exact item is. Never let the family text override, dilute, or contradict the item\'s own specific data - e.g. do not describe an item as an "Extension" (or give it an extension\'s length) if its own specific text describes it as a pilot drill, and do not drop an item\'s own stated form (e.g. "Extension") in favor of a generic phrase copied from the shared family heading just because that heading mentions it.\n'+
@@ -5235,6 +5347,7 @@ async function buildMasterRecords(isResume){
           if(parsed.technical_specs&&typeof parsed.technical_specs==='object'&&!Array.isArray(parsed.technical_specs))rec.technical_specs=parsed.technical_specs;
           if(Array.isArray(parsed.features))rec.features=parsed.features.map(function(f){return String(f).trim();}).filter(Boolean);
           if(Array.isArray(parsed.applications))rec.applications=parsed.applications.map(function(a){return String(a).trim();}).filter(Boolean);
+          if(Array.isArray(parsed.family_wide_fields))rec.familySourcedKeys=parsed.family_wide_fields.map(function(f){return String(f).trim();}).filter(Boolean);
         }
         var sourcesUsed=[];
         if(hasExcel)sourcesUsed.push('Excel');
@@ -5274,6 +5387,7 @@ async function buildMasterRecords(isResume){
       renderMasterRecords();
     }
   }
+  applyFamilySourcedSpecs(masterRecordOrder.slice());
   normalizeFamilyTechnicalSpecs(masterRecordOrder.slice());
   renderMasterRecords();
   setProg('mg3',100,'');
@@ -5326,6 +5440,7 @@ async function retryFailedMasterRecords(){
           if(parsed.technical_specs&&typeof parsed.technical_specs==='object'&&!Array.isArray(parsed.technical_specs))rec.technical_specs=parsed.technical_specs;
           if(Array.isArray(parsed.features))rec.features=parsed.features.map(function(f){return String(f).trim();}).filter(Boolean);
           if(Array.isArray(parsed.applications))rec.applications=parsed.applications.map(function(a){return String(a).trim();}).filter(Boolean);
+          if(Array.isArray(parsed.family_wide_fields))rec.familySourcedKeys=parsed.family_wide_fields.map(function(f){return String(f).trim();}).filter(Boolean);
         }
         var sourcesUsed=[];
         if(hasExcel)sourcesUsed.push('Excel');
@@ -5342,6 +5457,7 @@ async function retryFailedMasterRecords(){
     }
     if(i+1<toRetry.length&&!stops.mg3)await new Promise(function(r){setTimeout(r,400);});
   }
+  applyFamilySourcedSpecs(masterRecordOrder.slice());
   normalizeFamilyTechnicalSpecs(masterRecordOrder.slice());
   setProg('mg3',100,'');
   setTimeout(function(){setProg('mg3',0,'');},400);
