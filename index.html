@@ -3198,7 +3198,16 @@ async function runTab2(isResume){
         var promptData2=(familyKey2&&variantKeys2.length)?getPromptDataForFamilyTemplate(row,pn,variantKeys2):getPromptData(row,pn);
         var familyNote2=(familyKey2&&variantKeys2.length)?('\n\nNOTE: some Technical Specs values below are placeholder tokens like '+specKeyToToken(variantKeys2[0])+' because this exact content will be reused verbatim for OTHER sizes in this same product family. Keep every token EXACTLY as written, wherever that spec would naturally appear - do not translate, explain, remove, or invent a real value for it. Every other value shown is real and specific - do not tokenize anything that is not already shown as a token.'):'';
         var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity (e.g. "Packaged 5 per box") as a highlight - not a buyer-facing spec worth a bullet here\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(hlTemplate,'Highlights list')+familyNote2+'\n\nPRODUCT DATA:\n'+JSON.stringify(promptData2,null,2);
-        var rhtml=await apiCallRetry(prompt,600,5,90000,function(){return stops.t2;});
+        // Round 49: Ahmed hit the same max_tokens/"thinking"-only cutoff
+        // here that Product Name and Build Master Records hit before
+        // (rounds 22/23/38) - the model spends its whole budget reasoning
+        // and gets cut off before emitting any actual bullets, especially
+        // now that a family's canonical item gets the extra token-
+        // placeholder instructions from round 48. Raised to match the same
+        // proven budget used everywhere else this exact failure showed up,
+        // since the real output itself (4-5 short bullets) was never the
+        // large part of the response.
+        var rhtml=await apiCallRetry(prompt,4000,5,90000,function(){return stops.t2;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry2={partNumber:pn,html:rhtml,row:row};
         if(familyKey2&&variantKeys2.length){
@@ -3946,6 +3955,43 @@ function normalizeFamilyTechnicalSpecs(baseKeys){
       // Recognized clusters = 2+ members already agreeing on the same
       // (case/whitespace-normalized) text - real, established values.
       var clusters=normTexts.filter(function(n){return groups[n].length>=2;});
+      // Round 49 (Ahmed, real data: "sometimes you do black oxide and
+      // gold, and sometimes you do black oxide and gold finish" surviving
+      // in HTML Table/Filters even after round 47). The original version
+      // of this pass only folded a one-off MINORITY value into an
+      // established majority - it deliberately left two already-recognized
+      // (2+ member) clusters alone, to avoid wrongly merging two genuinely
+      // different real specs. But Ahmed pushed back hard on that caution
+      // for a field like Finish: a near-duplicate phrasing (one text is a
+      // substring of the other) is still the exact same real fact no
+      // matter how the count happens to split - there is no such thing as
+      // a "legitimate 50/50 split" for Finish the way there legitimately
+      // is for Shank Type across a size threshold. So: resolve any two
+      // recognized clusters that are near-duplicates of EACH OTHER first,
+      // keeping only the one with more members (ties broken by the
+      // longer/more complete text) - the existing minority-absorption pass
+      // below then folds the demoted cluster into it exactly as it already
+      // does for a true one-off outlier. Two clusters that are NOT
+      // near-duplicates of each other (different real facts, like two
+      // different Shank Types) are never touched by this.
+      (function resolveNearDuplicateClusters(){
+        var changed=true;
+        while(changed){
+          changed=false;
+          resolveLoop:
+          for(var ci=0;ci<clusters.length;ci++){
+            for(var cj=ci+1;cj<clusters.length;cj++){
+              var c1=clusters[ci],c2=clusters[cj];
+              if(c1.indexOf(c2)===-1&&c2.indexOf(c1)===-1)continue;
+              var keep=(groups[c1].length!==groups[c2].length)?(groups[c1].length>groups[c2].length?c1:c2):(c1.length>=c2.length?c1:c2);
+              var drop=keep===c1?c2:c1;
+              clusters=clusters.filter(function(c){return c!==drop;});
+              changed=true;
+              break resolveLoop;
+            }
+          }
+        }
+      })();
       function canonicalCasingFor(norm){
         var counts={},best=null,bestN=0;
         groups[norm].forEach(function(e){counts[e.raw]=(counts[e.raw]||0)+1;});
