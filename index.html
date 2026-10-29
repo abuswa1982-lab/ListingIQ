@@ -3165,6 +3165,7 @@ async function runTab2(isResume){
   document.getElementById('t2-res').classList.add('on');
   renderTab('t2',results.t2);
   var variantCache2=buildVariantCache(results.t2);
+  var familyContentCache2=buildFamilyContentCache(results.t2);
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t2){
       runState.t2.resumeFrom = i;
@@ -3178,14 +3179,33 @@ async function runTab2(isResume){
       var row=fileData[i];var pn=getPN(row);
       var bKey2=baseItemKey(pn);
       var cached2=(reuseVariantsOn()&&bKey2)?variantCache2[bKey2]:null;
+      var masterRec2=bKey2?masterRecords[bKey2]:null;
+      var familyKey2=masterRec2?masterRec2.familyKey:null;
+      var famCached2=(reuseVariantsOn()&&familyKey2)?familyContentCache2[familyKey2]:null;
       if(cached2){
         results.t2.push({partNumber:pn,html:cached2.html,row:row,reusedFrom:cached2.partNumber});
+      } else if(famCached2){
+        // Round 48: this catalog family already has a generated template -
+        // reuse it verbatim, swapping only this item's own size-dependent
+        // values into the placeholder tokens. Zero additional API call.
+        var subHtml2=substituteFamilyTokens(famCached2.html,famCached2.variantKeys,masterRec2.technical_specs);
+        var entry2b={partNumber:pn,html:subHtml2,row:row,reusedFrom:famCached2.sourcePN};
+        results.t2.push(entry2b);
+        if(bKey2&&!(bKey2 in variantCache2))variantCache2[bKey2]=entry2b;
       } else {
         var hlTemplate = getCategoryFieldTemplate(row,'exampleHighlights');
-        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity (e.g. "Packaged 5 per box") as a highlight - not a buyer-facing spec worth a bullet here\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(hlTemplate,'Highlights list')+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
+        var variantKeys2=familyKey2?familyVariantSpecKeys(familyKey2):[];
+        var promptData2=(familyKey2&&variantKeys2.length)?getPromptDataForFamilyTemplate(row,pn,variantKeys2):getPromptData(row,pn);
+        var familyNote2=(familyKey2&&variantKeys2.length)?('\n\nNOTE: some Technical Specs values below are placeholder tokens like '+specKeyToToken(variantKeys2[0])+' because this exact content will be reused verbatim for OTHER sizes in this same product family. Keep every token EXACTLY as written, wherever that spec would naturally appear - do not translate, explain, remove, or invent a real value for it. Every other value shown is real and specific - do not tokenize anything that is not already shown as a token.'):'';
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity (e.g. "Packaged 5 per box") as a highlight - not a buyer-facing spec worth a bullet here\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(hlTemplate,'Highlights list')+familyNote2+'\n\nPRODUCT DATA:\n'+JSON.stringify(promptData2,null,2);
         var rhtml=await apiCallRetry(prompt,600,5,90000,function(){return stops.t2;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry2={partNumber:pn,html:rhtml,row:row};
+        if(familyKey2&&variantKeys2.length){
+          familyContentCache2[familyKey2]={html:rhtml,variantKeys:variantKeys2,sourcePN:pn};
+          entry2.familyKey=familyKey2;entry2.familyTemplate=rhtml;entry2.familyVariantKeys=variantKeys2;
+          entry2.html=substituteFamilyTokens(rhtml,variantKeys2,masterRec2.technical_specs);
+        }
         results.t2.push(entry2);
         if(bKey2&&!(bKey2 in variantCache2))variantCache2[bKey2]=entry2;
         if(!hlTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleHighlights',rhtml);
@@ -3234,6 +3254,7 @@ async function runTab3(isResume){
   document.getElementById('t3-res').classList.add('on');
   renderTab('t3',results.t3);
   var variantCache3=buildVariantCache(results.t3);
+  var familyContentCache3=buildFamilyContentCache(results.t3);
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t3){
       runState.t3.resumeFrom = i;
@@ -3247,12 +3268,24 @@ async function runTab3(isResume){
       var row=fileData[i];var pn=getPN(row);
       var bKey3=baseItemKey(pn);
       var cached3=(reuseVariantsOn()&&bKey3)?variantCache3[bKey3]:null;
+      var masterRec3=bKey3?masterRecords[bKey3]:null;
+      var familyKey3=masterRec3?masterRec3.familyKey:null;
+      var famCached3=(reuseVariantsOn()&&familyKey3)?familyContentCache3[familyKey3]:null;
       if(cached3){
         results.t3.push({partNumber:pn,html:cached3.html,row:row,reusedFrom:cached3.partNumber});
+      } else if(famCached3){
+        // Round 48: this catalog family already has a generated description
+        // template - reuse it verbatim, swapping only this item's own
+        // size-dependent values into the placeholder tokens. Zero
+        // additional API call.
+        var subHtml3=substituteFamilyTokens(famCached3.html,famCached3.variantKeys,masterRec3.technical_specs);
+        var entry3b={partNumber:pn,html:subHtml3,row:row,reusedFrom:famCached3.sourcePN};
+        results.t3.push(entry3b);
+        if(bKey3&&!(bKey3 in variantCache3))variantCache3[bKey3]=entry3b;
       } else {
-        var masterRec3=bKey3?masterRecords[bKey3]:null;
         var prompt;
         var descTemplate = masterRec3 ? getCategoryFieldTemplate(row,'exampleDescription') : null;
+        var variantKeys3=familyKey3?familyVariantSpecKeys(familyKey3):[];
         if(masterRec3){
           // Master record available (Phase 3/4): unlike the old verbatim-only
           // path below, this is allowed to actually COMPOSE a description -
@@ -3261,8 +3294,9 @@ async function runTab3(isResume){
           // Still strictly grounded: only facts present in the record, and
           // any known Excel-vs-catalog conflict must be stated explicitly
           // rather than silently resolved.
-          var mrText3=formatMasterRecordText(masterRec3);
-          prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nWrite a clear, well-organized product description in HTML for this listing, using the verified product data below.\n\nRULES:\n- Use <p> for paragraphs and <ul><li> for feature/application lists - organize related specs, features, and applications into readable prose rather than just repeating raw labels, but do not change any fact\'s meaning.\n- Do NOT include a "Part Number" or "Brand" line - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items that intentionally reuse this exact same content.\n- Do NOT include packaging or box/pack quantity - not relevant to this description.\n- If a spec appears with two different values from the two sources (e.g. "Length (spec sheet)": ... and "Length (catalog)": ...), state both explicitly rather than picking one - do not silently drop or choose between them.\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags outside the content.'+DATA_FIDELITY_RULE+categoryTemplateBlock(descTemplate,'Description')+'\n\nPRODUCT DATA:\n'+(mrText3||'(no data)');
+          var mrText3=(familyKey3&&variantKeys3.length)?formatMasterRecordTextTokenized(masterRec3,variantKeys3):formatMasterRecordText(masterRec3);
+          var familyNote3=(familyKey3&&variantKeys3.length)?('\n\nNOTE: some values in the product data below are placeholder tokens like '+specKeyToToken(variantKeys3[0])+' because this exact description will be reused verbatim for OTHER sizes in this same product family. Keep every token EXACTLY as written, wherever that spec would naturally appear in the description - do not translate, explain, remove, or invent a real value for it. Every other value shown is real and specific - do not tokenize anything that is not already shown as a token.'):'';
+          prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nWrite a clear, well-organized product description in HTML for this listing, using the verified product data below.\n\nRULES:\n- Use <p> for paragraphs and <ul><li> for feature/application lists - organize related specs, features, and applications into readable prose rather than just repeating raw labels, but do not change any fact\'s meaning.\n- Do NOT include a "Part Number" or "Brand" line - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items that intentionally reuse this exact same content.\n- Do NOT include packaging or box/pack quantity - not relevant to this description.\n- If a spec appears with two different values from the two sources (e.g. "Length (spec sheet)": ... and "Length (catalog)": ...), state both explicitly rather than picking one - do not silently drop or choose between them.\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags outside the content.'+DATA_FIDELITY_RULE+categoryTemplateBlock(descTemplate,'Description')+familyNote3+'\n\nPRODUCT DATA:\n'+(mrText3||'(no data)');
         } else {
           // No master record for this item (e.g. a plain single-table upload
           // that skipped Merge Data / Build Master Records) - fall back to
@@ -3284,6 +3318,11 @@ async function runTab3(isResume){
         var rhtml=await apiCallRetry(prompt,4000,5,90000,function(){return stops.t3;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry3={partNumber:pn,html:rhtml,row:row};
+        if(masterRec3&&familyKey3&&variantKeys3.length){
+          familyContentCache3[familyKey3]={html:rhtml,variantKeys:variantKeys3,sourcePN:pn};
+          entry3.familyKey=familyKey3;entry3.familyTemplate=rhtml;entry3.familyVariantKeys=variantKeys3;
+          entry3.html=substituteFamilyTokens(rhtml,variantKeys3,masterRec3.technical_specs);
+        }
         results.t3.push(entry3);
         if(bKey3&&!(bKey3 in variantCache3))variantCache3[bKey3]=entry3;
         if(masterRec3&&!descTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleDescription',rhtml);
@@ -3332,6 +3371,7 @@ async function runTab4(isResume){
   document.getElementById('t4-res').classList.add('on');
   renderTab('t4',results.t4);
   var variantCache4=buildVariantCache(results.t4);
+  var familyContentCache4=buildFamilyContentCache(results.t4);
   for(var i=startIdx;i<fileData.length;i++){
     if(stops.t4){
       runState.t4.resumeFrom = i;
@@ -3345,14 +3385,35 @@ async function runTab4(isResume){
       var row=fileData[i];var pn=getPN(row);
       var bKey4=baseItemKey(pn);
       var cached4=(reuseVariantsOn()&&bKey4)?variantCache4[bKey4]:null;
+      var masterRec4=bKey4?masterRecords[bKey4]:null;
+      var familyKey4=masterRec4?masterRec4.familyKey:null;
+      var famCached4=(reuseVariantsOn()&&familyKey4)?familyContentCache4[familyKey4]:null;
       if(cached4){
         results.t4.push({partNumber:pn,html:cached4.html,row:row,reusedFrom:cached4.partNumber});
+      } else if(famCached4){
+        // Round 48: this catalog family already has a generated table
+        // template - reuse it verbatim, swapping only this item's own
+        // size-dependent values into the placeholder tokens. Zero
+        // additional API call (and Filters, derived from this table at
+        // export time, picks up the same consistency for free).
+        var subHtml4=substituteFamilyTokens(famCached4.html,famCached4.variantKeys,masterRec4.technical_specs);
+        var entry4b={partNumber:pn,html:subHtml4,row:row,reusedFrom:famCached4.sourcePN};
+        results.t4.push(entry4b);
+        if(bKey4&&!(bKey4 in variantCache4))variantCache4[bKey4]=entry4b;
       } else {
         var tblTemplate = getCategoryFieldTemplate(row,'exampleTable');
-        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Do NOT include a "Part Number" or "Brand" row - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity as a row - not a spec worth a table row here\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(tblTemplate,'Specs Table')+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2);
+        var variantKeys4=familyKey4?familyVariantSpecKeys(familyKey4):[];
+        var promptData4=(familyKey4&&variantKeys4.length)?getPromptDataForFamilyTemplate(row,pn,variantKeys4):getPromptData(row,pn);
+        var familyNote4=(familyKey4&&variantKeys4.length)?('\n\nNOTE: some Technical Specs values below are placeholder tokens like '+specKeyToToken(variantKeys4[0])+' because this exact table will be reused verbatim for OTHER sizes in this same product family. Keep every token EXACTLY as written, in its own table row/cell - do not translate, explain, remove, or invent a real value for it. Every other value shown is real and specific - do not tokenize anything that is not already shown as a token.'):'';
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nAnalyze this product data and build an HTML specifications table.\n\nRULES:\n- Identify the 6-10 MOST IMPORTANT attributes for this specific product category\n- Attributes must be buyer-relevant and SEO-valuable (e.g. Drive Size, Material, Finish, Weight, Certifications, Dimensions, Compatibility)\n- Do NOT include generic or obvious attributes\n- Do NOT include a "Part Number" or "Brand" row - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity as a row - not a spec worth a table row here\n- Table format: two columns - Attribute | Value\n- Use this exact HTML structure:\n<table><thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody><tr><td>...</td><td>...</td></tr></tbody></table>\n- Output valid HTML only - no preamble, no explanation, no markdown, no extra tags'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(tblTemplate,'Specs Table')+familyNote4+'\n\nPRODUCT DATA:\n'+JSON.stringify(promptData4,null,2);
         var rhtml=await apiCallRetry(prompt,800,5,90000,function(){return stops.t4;});
         rhtml=rhtml.replace(/```html|```/g,'').trim();
         var entry4={partNumber:pn,html:rhtml,row:row};
+        if(familyKey4&&variantKeys4.length){
+          familyContentCache4[familyKey4]={html:rhtml,variantKeys:variantKeys4,sourcePN:pn};
+          entry4.familyKey=familyKey4;entry4.familyTemplate=rhtml;entry4.familyVariantKeys=variantKeys4;
+          entry4.html=substituteFamilyTokens(rhtml,variantKeys4,masterRec4.technical_specs);
+        }
         results.t4.push(entry4);
         if(bKey4&&!(bKey4 in variantCache4))variantCache4[bKey4]=entry4;
         if(!tblTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleTable',rhtml);
@@ -5475,6 +5536,100 @@ function getPromptData(row,pn){
   if(rec.features&&rec.features.length)data['Features']=rec.features;
   if(rec.applications&&rec.applications.length)data['Applications']=rec.applications;
   return data;
+}
+// Round 48 (Ahmed, real catalog pages: "besides you're going to update the
+// size, there's nothing else... once you figure out the table, you just
+// duplicate it... why run it again"). Rounds 46/47 made per-item generation
+// CONSISTENT across a catalog family but still paid for one full AI call
+// per item. This goes further: for Highlights/Description/HTML Table, only
+// the FIRST member of a family gets a real AI call - it's asked to write
+// any size-dependent spec value as a literal placeholder token (e.g.
+// {{FLUTE_LENGTH}}) instead of a real number, because every OTHER member
+// of the family reuses this exact generated text verbatim and just swaps
+// those tokens for its own values - plain string substitution, zero added
+// API calls. Which fields get tokenized is never hardcoded to drill bits or
+// any other product type - it's computed per family straight from that
+// family's own already-built (and round-47-normalized) Master Records: any
+// technical_specs field that still has 2+ genuinely different values
+// across the family's members (Flute Length, Overall Length, even Shank
+// Type for a family that spans a size threshold) is a real per-item fact
+// and gets tokenized; a field with only one value across the whole family
+// (Material, Finish, Duty, ...) is just real, shared text - every member's
+// output is already identical there, nothing to substitute.
+function specKeyToToken(key){
+  return '{{'+String(key||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'')+'}}';
+}
+var familyVariantKeysCache={};
+function familyVariantSpecKeys(familyKey){
+  if(!familyKey)return[];
+  if(familyKey in familyVariantKeysCache)return familyVariantKeysCache[familyKey];
+  var groups={};
+  masterRecordOrder.forEach(function(bKey){
+    var r=masterRecords[bKey];
+    if(!r||r.familyKey!==familyKey)return;
+    var specs=r.technical_specs||{};
+    Object.keys(specs).forEach(function(k){
+      var v=String(specs[k]||'').trim();
+      if(!v)return;
+      if(!groups[k])groups[k]={};
+      groups[k][v]=true;
+    });
+  });
+  var variantKeys=Object.keys(groups).filter(function(k){return Object.keys(groups[k]).length>=2;});
+  familyVariantKeysCache[familyKey]=variantKeys;
+  return variantKeys;
+}
+function tokenizedTechnicalSpecs(specs,variantKeys){
+  var out={};
+  Object.keys(specs||{}).forEach(function(k){
+    out[k]=(variantKeys.indexOf(k)!==-1)?specKeyToToken(k):specs[k];
+  });
+  return out;
+}
+// Highlights/HTML Table read product data via getPromptData() - this builds
+// the same shape but with variant technical_specs values swapped for
+// tokens, WITHOUT ever mutating the real master record (a plain object
+// copy, never the live rec.technical_specs reference).
+function getPromptDataForFamilyTemplate(row,pn,variantKeys){
+  var data=getPromptData(row,pn);
+  if(data&&data['Technical Specs']){
+    var clone={};
+    Object.keys(data).forEach(function(k){clone[k]=data[k];});
+    clone['Technical Specs']=tokenizedTechnicalSpecs(data['Technical Specs'],variantKeys);
+    data=clone;
+  }
+  return data;
+}
+// Description reads product data via formatMasterRecordText() (a flat
+// string, not JSON) - same idea, a tokenized clone of the record, never the
+// real one.
+function formatMasterRecordTextTokenized(rec,variantKeys){
+  if(!rec)return'';
+  var clone={technical_specs:tokenizedTechnicalSpecs(rec.technical_specs||{},variantKeys||[]),features:rec.features,applications:rec.applications};
+  return formatMasterRecordText(clone);
+}
+function substituteFamilyTokens(html,variantKeys,specs){
+  var out=html;
+  (variantKeys||[]).forEach(function(k){
+    var token=specKeyToToken(k);
+    var val=(specs&&specs[k]!=null)?String(specs[k]):'';
+    out=out.split(token).join(val);
+  });
+  return out;
+}
+// Rebuilds familyKey -> {html(tokenized), variantKeys, sourcePN} from an
+// in-progress results array, same purpose as buildVariantCache() above - so
+// a Stop/Resume run doesn't lose (or re-pay for) a family template already
+// generated earlier in the same run.
+function buildFamilyContentCache(list){
+  var cache={};
+  for(var j=0;j<list.length;j++){
+    var entry=list[j];
+    if(entry.familyKey&&entry.familyTemplate&&!(entry.familyKey in cache)){
+      cache[entry.familyKey]={html:entry.familyTemplate,variantKeys:entry.familyVariantKeys||[],sourcePN:entry.partNumber};
+    }
+  }
+  return cache;
 }
 function renderMergePreview(){
   document.getElementById('mg2-res').classList.add('on');
