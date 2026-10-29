@@ -2090,11 +2090,17 @@ function getPackQty(pn){
   return m?m[1]:null;
 }
 function packPhrase(qty){ return '['+qty+' Pack]'; }
-function buildTitlePrompt(chConfig,brand,pn,row,categoryExample){
+function buildTitlePrompt(chConfig,brand,pn,row,categoryExample,promptDataOverride){
   var exampleBlock = categoryExample ? '\n\nA title for this exact product category was already reviewed and approved earlier - this is a FIXED STRUCTURE to replicate exactly, not a loose style reference: "'+categoryExample+'"\n\nSTRICT RULES, confirmed necessary after real titles kept drifting from the approved pattern:\n1. Use the EXACT SAME set of attribute slots as the approved example, in the EXACT SAME order. Do NOT add any attribute, spec, or descriptive word that is not present in the approved example - even if that data exists elsewhere for this item (e.g. if the approved example has no "Depth", "Imported", "Varied pitch", or similar wording, this title must not include it either, no matter what other data is available).\n2. Do NOT remove or reorder any slot the approved example has. Only skip a slot if this item genuinely has no data for it - never invent a substitute or move it elsewhere in the title.\n3. Only the ACTUAL VALUES change (this item\'s own part number, dimension, spec values) - the words, structure, and slot order around them must match the approved example exactly.' : '';
   var packQty = getPackQty(pn);
   var packBlock = packQty ? '\n\nPACK QUANTITY - REQUIRED: This item\'s part number ends in "-'+packQty+'", meaning it ships in a pack quantity of '+packQty+'. The title MUST include this as the exact phrase "'+packPhrase(packQty)+'" (with the square brackets, exactly as shown) somewhere after the mandatory Brand + Part Number prefix. This is a REQUIRED element, not optional - if the title needs to be shortened to fit the character limit, drop other secondary slots (per the rule above) BEFORE ever dropping this pack-quantity phrase.' : '';
-  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+exampleBlock+packBlock+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(getPromptData(row,pn),null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
+  // Round 50: promptDataOverride lets the family-template path (see
+  // generateT1RowInto) supply a tokenized PRODUCT DATA object instead of
+  // this function calling getPromptData(row,pn) itself - same idea as
+  // getPromptDataForFamilyTemplate() for Highlights/HTML Table. Every
+  // existing caller omits this and behaves exactly as before.
+  var promptData = promptDataOverride || getPromptData(row,pn);
+  return 'You are a product listing specialist for industrial and B2B e-commerce.\n\nGenerate ONE optimized product title.\n\n'+chConfig.rule+exampleBlock+packBlock+'\n\nMANDATORY: Title MUST begin with: '+brand+' '+pn+'\n\nPRODUCT DATA:\n'+JSON.stringify(promptData,null,2)+'\n\nTitle target '+chConfig.target+' chars (hard max '+chConfig.max+').'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+'\n\nRespond with title text ONLY. No quotes. No explanation.';
 }
 // Round 18: Website (hard max 70) and eBay (hard max 80) both require the
 // title to START with "{Brand} {Part Number}" AND fit within a much
@@ -2818,6 +2824,7 @@ async function runTab1(isResume){
   renderT1();
   var chs=channel==='all'?['amazon','ebay','website']:[channel];
   var variantCache1=buildVariantCache(results.t1);
+  var familyContentCache1=buildFamilyContentCache(results.t1);
   for(var i=startIdx;i<rows.length;i++){
     if(stops.t1){
       runState.t1.resumeFrom = i;
@@ -2828,7 +2835,7 @@ async function runTab1(isResume){
     setProg('t1',Math.round((i/rows.length)*95),'Row '+(i+1)+' of '+rows.length);
     document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>'+(i+1)+' / '+rows.length;
     try {
-      await generateT1RowInto(i,rows,channel,brand,chs,variantCache1);
+      await generateT1RowInto(i,rows,channel,brand,chs,variantCache1,familyContentCache1);
       renderT1();
     } catch (rowErr) {
       // Round 27: a hard client error (bad key, etc.) means every later row
@@ -2880,7 +2887,7 @@ async function runTab1(isResume){
 // caller decides hard-stop vs. skip-and-track); on success it pushes the
 // new/reused entry straight into results.t1 (and variantCache1, so a later
 // pack-size sibling in the same run/retry still gets dedup reuse).
-async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
+async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1,familyContentCache1){
   var pn=getPN(rows[i]);
   var b=getBrand(rows[i],brand);
   var bKey=baseItemKey(pn);
@@ -2889,6 +2896,9 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
   // pattern (either just now in the review step, or from a previous run),
   // pull its reference example title to feed into the prompt.
   var catExample = getCategoryExampleForRow(i);
+  var masterRecT1=bKey?masterRecords[bKey]:null;
+  var familyKeyT1=masterRecT1?masterRecT1.familyKey:null;
+  var famCachedT1=(reuseVariantsOn()&&familyKeyT1&&familyContentCache1&&channel!=='all')?familyContentCache1[familyKeyT1]:null;
   if(cached1){
     if(channel==='all'){
       var reusedEntry={partNumber:pn,row:rows[i],titles:{},reusedFrom:cached1.partNumber};
@@ -2900,6 +2910,18 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
       var srcTitle=cached1.titles?(cached1.titles[channel]||cached1.title):cached1.title;
       results.t1.push({partNumber:pn,channel:channel,title:swapPNInTitle(srcTitle,cached1.partNumber,pn,CH[channel].max),row:rows[i],reusedFrom:cached1.partNumber});
     }
+  } else if(famCachedT1){
+    // Round 50 (Ahmed: "It was never fixed... can we fix it, please?").
+    // Same mechanism as Highlights/Description/HTML Table (round 48): this
+    // catalog family already has a generated title template - reuse it
+    // verbatim, swapping the {{PART_NUMBER}} token for this item's own part
+    // number and any size-dependent Technical Specs tokens for its own
+    // values. Zero additional API call, and nothing left to drift.
+    var subTitleT1=substituteFamilyTokens(famCachedT1.html,famCachedT1.variantKeys.concat(['PART_NUMBER']),Object.assign({},masterRecT1.technical_specs,{PART_NUMBER:pn}));
+    subTitleT1=enforceLimit(subTitleT1,CH[channel].max);
+    var entryT1b={partNumber:pn,channel:channel,title:subTitleT1,row:rows[i],reusedFrom:famCachedT1.sourcePN};
+    results.t1.push(entryT1b);
+    if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entryT1b;
   } else if(channel==='all'){
     var entry={partNumber:pn,row:rows[i],titles:{}};
     for(var ci=0;ci<chs.length;ci++){
@@ -2914,7 +2936,25 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
     if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry;
   } else {
     checkTitlePrefixFits(CH[channel],b,pn);
-    var p2=buildTitlePrompt(CH[channel],b,pn,rows[i],catExample);
+    // Round 50: if this item belongs to a catalog family, build the prompt
+    // asking for a TEMPLATE instead of a one-off title - the mandatory
+    // Brand+PN prefix uses the {{PART_NUMBER}} token in place of this
+    // item's real part number, and any Technical Specs field that
+    // genuinely varies across the family (same familyVariantSpecKeys()
+    // used by Highlights/Description/HTML Table) is tokenized the same
+    // way. checkTitlePrefixFits() above still validated against the REAL
+    // brand+pn length, so the hard character limit check itself is
+    // unaffected by the token substitution happening later.
+    var variantKeysT1=familyKeyT1?familyVariantSpecKeys(familyKeyT1):[];
+    var p2;
+    if(familyKeyT1){
+      var pnTokenT1=specKeyToToken('PART_NUMBER');
+      var promptDataT1=getPromptDataForFamilyTemplate(rows[i],pn,variantKeysT1);
+      promptDataT1['Part Number']=pnTokenT1;
+      p2=buildTitlePrompt(CH[channel],b,pnTokenT1,rows[i],catExample,promptDataT1);
+    } else {
+      p2=buildTitlePrompt(CH[channel],b,pn,rows[i],catExample);
+    }
     // Round 22: this 300-token budget is the real root cause of the rounds
     // 18-19 "empty response" mystery on Product Name - Ahmed's round-18
     // diagnostic surfacing finally caught it live: stop_reason=max_tokens,
@@ -2957,6 +2997,18 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1){
     // blocking the rest of the run.
     var raw2=await apiCallRetry(p2,4000,5,90000,function(){return stops.t1;});
     var entry2={partNumber:pn,channel:channel,title:enforceLimit(raw2,CH[channel].max),row:rows[i]};
+    if(familyKeyT1){
+      // Round 50: this is the FIRST member of its family to reach here -
+      // cache the raw (still-tokenized) title as the family's template so
+      // every later member reuses it instead of paying for its own call.
+      // checkTitlePrefixFits()/enforceLimit() above already ran against
+      // this item's own real pn/brand, so the hard character limit was
+      // validated correctly even though the cached template itself still
+      // contains the (slightly longer) {{PART_NUMBER}} token.
+      entry2.familyKey=familyKeyT1;entry2.familyTemplate=raw2;entry2.familyVariantKeys=variantKeysT1;
+      if(familyContentCache1)familyContentCache1[familyKeyT1]={html:raw2,variantKeys:variantKeysT1,sourcePN:pn};
+      entry2.title=enforceLimit(substituteFamilyTokens(raw2,variantKeysT1.concat(['PART_NUMBER']),Object.assign({},masterRecT1.technical_specs,{PART_NUMBER:pn})),CH[channel].max);
+    }
     results.t1.push(entry2);
     if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entry2;
   }
@@ -2983,6 +3035,7 @@ async function retryFailedT1Rows(){
   var brand=document.getElementById('t1-brand').value.trim();
   var chs=channel==='all'?['amazon','ebay','website']:[channel];
   var variantCache1=buildVariantCache(results.t1);
+  var familyContentCache1=buildFamilyContentCache(results.t1);
   for(var ri=0;ri<toRetry.length;ri++){
     if(stops.t1){
       setMsg('t1-msg','Stopped retrying. '+t1Failures.length+' row(s) still unresolved.','warn');
@@ -2992,7 +3045,7 @@ async function retryFailedT1Rows(){
     setProg('t1',Math.round((ri/toRetry.length)*95),'Retrying row '+(i+1)+' ('+(ri+1)+' of '+toRetry.length+')');
     document.getElementById('t1-lbl').innerHTML='<span class="spinner"></span>Retrying '+(ri+1)+' / '+toRetry.length;
     try{
-      await generateT1RowInto(i,rows,channel,brand,chs,variantCache1);
+      await generateT1RowInto(i,rows,channel,brand,chs,variantCache1,familyContentCache1);
       renderT1();
     }catch(err){
       t1Failures.push({index:i,partNumber:toRetry[ri].partNumber,error:err.message||String(err)});
