@@ -3912,6 +3912,21 @@ function familyKeyFromText(text){
   if(!t) return null;
   return t.toLowerCase().replace(/\s+/g,' ');
 }
+// Round 51: a Sets row (row.isSet, set by mergeData()/buildRowsFromCatalogOnly()
+// above) shares the exact same catalog-family blurb text as the individual-
+// size items on the same page, but is NOT the same kind of product - it
+// must never land in the same family cluster as those items (which would
+// let rounds 48/50's per-family template reuse apply an individual item's
+// title/description to a kit). A plain suffix on the text-based key is
+// enough to split it into its own cluster without touching
+// familyKeyFromText() itself, so every row that was never tagged isSet
+// (i.e. every row before this round, and every plain non-catalog upload)
+// gets the exact same key it always did.
+function familyKeyForRow(row){
+  var base=familyKeyFromText(row&&row['Additional Info 2']);
+  if(!base)return null;
+  return (row&&row.isSet)?(base+'::SET'):base;
+}
 // Shared by buildMasterRecords() and retryFailedMasterRecords() so both
 // paths guarantee every member of a detected family ends up with the exact
 // same features/applications text - the first item to reach this for a
@@ -5173,7 +5188,7 @@ async function buildMasterRecords(isResume){
     var bKey=baseItemKey(pn)||pn;
     if(!bKey)return;
     if(!seen[bKey]){
-      seen[bKey]={baseKey:bKey,excelSpecsText:row['Key Specs']||'',pdfItemText:row['Additional Info 1']||'',pdfFamilyText:row['Additional Info 2']||'',familyKey:familyKeyFromText(row['Additional Info 2'])};
+      seen[bKey]={baseKey:bKey,excelSpecsText:row['Key Specs']||'',pdfItemText:row['Additional Info 1']||'',pdfFamilyText:row['Additional Info 2']||'',familyKey:familyKeyForRow(row)};
       items.push(seen[bKey]);
     }
   });
@@ -5880,6 +5895,28 @@ function getScopedMergedRows(){
   }
   return mergedForFileData;
 }
+// Round 51 (Ahmed: "we're going to have this problem down the road with
+// the sets... from the get-go, it will know this is a drill bit and this
+// is a drill bit set"). A Sets row (e.g. "13 Pc. 1/16in - 1/4in by 64ths")
+// isn't a bigger/smaller size of the same item the way the fractional
+// sizes on the same catalog page are - it's a fundamentally different kind
+// of listing (a kit), and forcing it through the exact same per-family
+// title/description template as a single drill bit (rounds 48/50) would be
+// structurally wrong, not just worded differently. This is a purely
+// additive, generic signal - never hardcoded to drill bits or any other
+// product type - that a catalog entry's own extracted technical_specs
+// describe a kit: a Qty/Pieces-style field is something only a kit's own
+// listing of its own specs would ever have (an individual item's own specs
+// never include how many pieces ITSELF is made of). When true, every row
+// built from it is tagged isSet:true (used below to split Sets into their
+// own category and their own family cluster) - every row where this is
+// false behaves completely unchanged from before this round.
+function isSetTechnicalSpecs(specs){
+  if(!specs)return false;
+  return Object.keys(specs).some(function(k){
+    return /\b(qty|quantity|pieces?|pcs?|piece[\s-]?count)\b/i.test(k);
+  });
+}
 function mergeData(){
   setMsg('mg2-msg','','');
   if(!fileData||!fileData.length){setMsg('mg2-msg','Upload your manufacturer spec sheet in the box at the top of the page first - or, if you only have a PDF catalog and no spec sheet, use "Build Rows From Catalog Only" above instead.','error');return;}
@@ -5948,14 +5985,16 @@ function mergeData(){
     if(matched)matchedCount++;
     var keySpecs=buildKeySpecs(effectiveRow,detectedCol||null,boilerplateCols);
     var productTypeFallback=catalogEntries.length?'Unmatched - needs review':(row['Section']||'Unclassified');
+    var isSetRow=isSetTechnicalSpecs(pdfSpecs);
     var clean={
       'Part Number':rawVal,
       'Brand':brand,
-      'Product Type':family||productTypeFallback,
+      'Product Type':(family||productTypeFallback)+(isSetRow?' - Sets':''),
       'Key Specs':keySpecs,
       'Additional Info 1':itemContent,
       'Additional Info 2':familyExtra,
-      'Additional Info 3':''
+      'Additional Info 3':'',
+      isSet:isSetRow
     };
     mergedForFileData.push(clean);
     mergedPreviewRows.push({partNumber:rawVal,matched:matched,productType:clean['Product Type'],keySpecs:keySpecs,ai1:itemContent||familyExtra});
@@ -5981,14 +6020,16 @@ function mergeData(){
       famExtra=familyIndex[e.family.toLowerCase()].map(flattenEntryText).filter(Boolean).join(' ');
     }
     var ownContent=entries.map(flattenEntryText).filter(Boolean).join(' ');
+    var isSetRow2=isSetTechnicalSpecs(e.technical_specs);
     var clean={
       'Part Number':e.item_no,
       'Brand':brand,
-      'Product Type':e.family||'Unclassified',
+      'Product Type':(e.family||'Unclassified')+(isSetRow2?' - Sets':''),
       'Key Specs':'',
       'Additional Info 1':ownContent,
       'Additional Info 2':famExtra,
       'Additional Info 3':'',
+      isSet:isSetRow2,
       catalogOnly:true
     };
     mergedForFileData.push(clean);
@@ -6031,14 +6072,16 @@ function buildRowsFromCatalogOnly(){
       familyExtra=familyIndex[e.family.toLowerCase()].map(function(fe){return flattenFamilyEntryForItem(fe,e.technical_specs);}).filter(Boolean).join(' ');
     }
     var ownContent=flattenEntryText(e);
+    var isSetRow3=isSetTechnicalSpecs(e.technical_specs);
     var clean={
       'Part Number':e.item_no,
       'Brand':brand,
-      'Product Type':e.family||'Unclassified',
+      'Product Type':(e.family||'Unclassified')+(isSetRow3?' - Sets':''),
       'Key Specs':'',
       'Additional Info 1':ownContent,
       'Additional Info 2':familyExtra,
-      'Additional Info 3':''
+      'Additional Info 3':'',
+      isSet:isSetRow3
     };
     mergedForFileData.push(clean);
     mergedPreviewRows.push({partNumber:e.item_no,matched:true,productType:clean['Product Type'],keySpecs:'',ai1:ownContent||familyExtra});
