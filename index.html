@@ -4045,9 +4045,50 @@ function applyFamilySourcedSpecs(baseKeys){
         }
       }
       if(canonVal===null)return; // no member has any value for this field at all
+      // Round 53b (Ahmed, real catalog: page A-6 lists TWO stock numbers
+      // per size - J150097 (Black Oxide) and J150097B (Bright Finish) -
+      // and confirmed, step by step, that extraction, merge, and the
+      // initial Master Record build all correctly captured J150097B's own
+      // Finish as "Bright Finish". It only turned into "Black Oxide" (the
+      // OTHER item's value) after this pass ran. Root cause: this force-
+      // share only ever trusted the model's family-wide tag and then
+      // overwrote EVERY member unconditionally, with no check for whether
+      // a member already had its own genuinely different real value - safe
+      // for a field like Material, where real variation within a family is
+      // rare, but actively WRONG for a field like Finish, where the
+      // catalog's own family-wide blurb ("Black Oxide Or Bright Finish")
+      // describes TWO legitimate options at once and a model call can
+      // reasonably (if overzealously) tag it as "family-wide" even though
+      // the actual value is deliberately different per item. Fix: never
+      // clobber a member's own existing non-blank value unless it's a
+      // near-duplicate of the canonical value (the same wording-drift
+      // check normalizeFamilyTechnicalSpecs already uses everywhere else)
+      // - only ever force-write when the member has NOTHING of its own
+      // (safe to backfill) or its own value is just a reworded/recased
+      // restatement of the same fact (safe to normalize). A member whose
+      // own value is a genuinely different real fact is always left alone,
+      // exactly like Shank Type is already protected elsewhere in this file.
+      // Same restraint applies to backfilling a BLANK member: if the family
+      // has two genuinely different real values for this field (like Black
+      // Oxide vs Bright Finish), there's no safe way to guess which side a
+      // blank member belongs to, so a blank is only ever backfilled when
+      // every member who has a value at all agrees on essentially one fact.
+      var canonNorm=normalizeSpecKey(canonVal);
+      var hasGenuineSplit=members.some(function(bKey){
+        var v=(masterRecords[bKey].technical_specs||{})[fieldName];
+        if(v===undefined||v===null||!String(v).trim())return false;
+        return !isNearDuplicateSpecText(normalizeSpecKey(v),canonNorm);
+      });
       members.forEach(function(bKey){
         var r=masterRecords[bKey];
         r.technical_specs=r.technical_specs||{};
+        var own=r.technical_specs[fieldName];
+        var ownBlank=(own===undefined||own===null||!String(own).trim());
+        if(ownBlank){
+          if(hasGenuineSplit)return; // can't safely guess which side a blank member belongs to
+        } else if(!isNearDuplicateSpecText(normalizeSpecKey(own),canonNorm)){
+          return; // genuinely different real value - never overwrite
+        }
         if(r.technical_specs[fieldName]!==canonVal){
           r.technical_specs[fieldName]=canonVal;
           r.specsNormalized=r.specsNormalized||[];
@@ -4519,6 +4560,7 @@ function buildExtractPrompt(chunkText){
   'RULES:\n'+
   '- One object per item number found in a table. Use physical proximity in the reconstructed layout to match each item number to its nearest spec/description text - it\'s usually on the same line or the line(s) immediately following it, before the next item number appears.\n'+
   '- If one description clearly applies to multiple item numbers listed together (e.g. they share one merged description cell), give each of those item numbers its own object with the same technical_specs/features/applications - do not skip any of them.\n'+
+  '- A row that lists two or more item numbers side by side under column sub-headings naming what\'s DIFFERENT about them (e.g. "Black Oxide" vs "Bright Finish", two colors, two coatings) is NOT the "shared merged cell" case above - these are separate items that share the same size/dimensions but differ in exactly that one labeled attribute. Give each of those item numbers its own object, with that one labeled attribute in technical_specs (e.g. "Finish") set to the ONE value matching its own position: the first/leftmost item number in the row gets the first-listed sub-heading\'s value, the next item number gets the next sub-heading\'s value, and so on - never the same value for both. The sub-heading labels for a table like this sometimes print elsewhere on the page rather than directly above the row (a layout quirk of how this text was reconstructed) - look for them across the whole page text, not just right above this row. If you cannot confidently match the number of item numbers in the row to that many distinct sub-heading labels anywhere on the page, do not guess which is which - record the item number with its other specs but leave that one specific attribute out entirely rather than risk assigning it to the wrong item.\n'+
   '- Separately, one object per product-line-level description block (Applications, Features & Benefits, general intro paragraphs) with item_no set to null - split that prose into features/applications the same way.\n'+
   '- Skip pages with no useful catalog content (covers, table of contents, pure photos, safety warnings, ordering instructions, contact info).\n'+
   '- Do not invent or guess content that is not present in the text below. If you truly cannot tell what belongs to an item number, still record the item_no with empty technical_specs/features/applications rather than omitting it.\n'+
