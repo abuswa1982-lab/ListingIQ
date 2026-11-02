@@ -338,7 +338,7 @@ td{padding:9px 13px;vertical-align:top;line-height:1.5;}
           <div class="exp-row">
             <button class="btn-sm" onclick="downloadMasterRecords()">&#8595; Download master records (Excel)</button>
           </div>
-          <div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Sources</th><th>Technical Specs</th><th>Features</th><th>Applications</th></tr></thead><tbody id="mg3-tbody"></tbody></table></div>
+          <div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Sources</th><th>Technical Specs</th><th>Applications</th></tr></thead><tbody id="mg3-tbody"></tbody></table></div>
         </div>
         <button class="btn btn-navy" onclick="useMergedData()" style="margin-top:1rem;">Use This Data &#8594; Go to Product Name</button>
       </div>
@@ -4550,20 +4550,19 @@ function buildExtractPrompt(chunkText){
   return 'You are extracting structured data from pages of a manufacturer product catalog PDF, for an e-commerce data pipeline. The goal is a lossless, structured record of what\'s printed for each item - NOT a summary. Capture every distinct spec, feature, and application mentioned; do not compress or shorten to save space.\n\n'+
   'The text below was reconstructed line-by-line from the PDF\'s visual layout (top to bottom, left to right within each line) so it roughly reads like the original table, but it is NOT perfect: a description that wraps onto two lines in the original may appear as two separate lines here, and a single description sometimes applies to two or three item numbers listed together (a merged cell in the original table). Page numbers are marked "--- PAGE N ---". Content may include tables of items with an Item Number/Item No./SKU/Model/Code column, dimensional or technical specs, a "Recommended Uses" or similar column of per-item notes, and marketing copy like "Applications" or "Features & Benefits" describing a whole product line rather than one item.'+knownBlock+'\n\n'+
   'Extract every distinct catalog entry as JSON objects with this shape:\n'+
-  '{"item_no": "<the item/SKU/model code exactly as printed, or null if this entry describes a whole product line rather than one item>", "family": "<the product line or category name this belongs to - reuse an exact name from KNOWN CATEGORIES above if this item genuinely matches one; otherwise a table heading or section title>", "technical_specs": {"<Field Name exactly as the catalog labels it>": "<value exactly as printed>", ...}, "features": ["<short phrase describing what the product IS or HAS>", ...], "applications": ["<short phrase describing what it is USED FOR or best suited to>", ...]}\n\n'+
+  '{"item_no": "<the item/SKU/model code exactly as printed, or null if this entry describes a whole product line rather than one item>", "family": "<the product line or category name this belongs to - reuse an exact name from KNOWN CATEGORIES above if this item genuinely matches one; otherwise a table heading or section title>", "technical_specs": {"<Field Name exactly as the catalog labels it>": "<value exactly as printed>", ...}, "applications": ["<short phrase describing what it is USED FOR or best suited to>", ...]}\n\n'+
   'FIELD GUIDANCE:\n'+
-  '- technical_specs: every measurable/nameable spec printed for this item - dimensions, material, tooth count, arbor size, thickness, grit, certifications, etc. Use the field name exactly as the catalog labels it (e.g. "Diameter", "T.P.I.", "Arbor"). Do not omit a spec because it seems minor - this is meant to be the complete spec set, not a highlight reel.\n'+
-  '- features: short phrases (2-5 words), not full sentences, e.g. "Carbide-tipped", "Precision-ground teeth".\n'+
-  '- applications: short phrases (2-5 words), not full sentences, e.g. "Fine crosscutting", "Hardwood".\n'+
-  '- If the catalog gives a flowing sentence rather than a spec table (e.g. "Ideal for hardwood, softwood and plywood, with precision-ground teeth for clean cuts"), split it into the individual applications and features it actually names - do not leave it as one long unsplit string.\n'+
-  '- If an item genuinely has no data for one of the three fields, use an empty object/array for it rather than guessing or inventing something plausible.\n\n'+
+  '- technical_specs: every measurable/nameable spec printed for this item - dimensions, material, tooth count, arbor size, thickness, grit, certifications, construction/design traits, finish, general descriptive claims, etc. Use the field name exactly as the catalog labels it when it\'s printed as a labeled table value (e.g. "Diameter", "T.P.I.", "Arbor"); for something stated in flowing prose rather than a table (e.g. "precision-ground teeth", "corrosion resistant"), still give it a short, sensible field name of your own (e.g. "Construction", "Coating"). Do not omit a spec because it seems minor, and do not limit this to table cells only - this is meant to be the complete set of nameable facts about the item from anywhere on the page, not a highlight reel.\n'+
+  '- applications: short phrases (2-5 words), not full sentences, e.g. "Fine crosscutting", "Hardwood" - what the item is USED FOR or best suited to, not what it IS or HAS (that belongs in technical_specs now, see above).\n'+
+  '- If the catalog gives a flowing sentence rather than a spec table (e.g. "Ideal for hardwood, softwood and plywood, with precision-ground teeth for clean cuts"), split out the individual USE/SUITABILITY phrases into applications, and split out the individual DESCRIPTIVE/CONSTRUCTION facts into technical_specs (with your own short field name per fact, per the guidance above) - do not leave it as one long unsplit string, and do not drop the descriptive facts just because they weren\'t in a table.\n'+
+  '- If an item genuinely has no data for one of the two fields, use an empty object/array for it rather than guessing or inventing something plausible.\n\n'+
   'RULES:\n'+
   '- One object per item number found in a table. Use physical proximity in the reconstructed layout to match each item number to its nearest spec/description text - it\'s usually on the same line or the line(s) immediately following it, before the next item number appears.\n'+
-  '- If one description clearly applies to multiple item numbers listed together (e.g. they share one merged description cell), give each of those item numbers its own object with the same technical_specs/features/applications - do not skip any of them.\n'+
+  '- If one description clearly applies to multiple item numbers listed together (e.g. they share one merged description cell), give each of those item numbers its own object with the same technical_specs/applications - do not skip any of them.\n'+
   '- A row that lists two or more item numbers side by side under column sub-headings naming what\'s DIFFERENT about them (e.g. "Black Oxide" vs "Bright Finish", two colors, two coatings) is NOT the "shared merged cell" case above - these are separate items that share the same size/dimensions but differ in exactly that one labeled attribute. Give each of those item numbers its own object, with that one labeled attribute in technical_specs (e.g. "Finish") set to the ONE value matching its own position: the first/leftmost item number in the row gets the first-listed sub-heading\'s value, the next item number gets the next sub-heading\'s value, and so on - never the same value for both. The sub-heading labels for a table like this sometimes print elsewhere on the page rather than directly above the row (a layout quirk of how this text was reconstructed) - look for them across the whole page text, not just right above this row. If you cannot confidently match the number of item numbers in the row to that many distinct sub-heading labels anywhere on the page, do not guess which is which - record the item number with its other specs but leave that one specific attribute out entirely rather than risk assigning it to the wrong item.\n'+
-  '- Separately, one object per product-line-level description block (Applications, Features & Benefits, general intro paragraphs) with item_no set to null - split that prose into features/applications the same way.\n'+
+  '- Separately, one object per product-line-level description block (Applications, Features & Benefits, general intro paragraphs) with item_no set to null - split that prose into technical_specs/applications the same way.\n'+
   '- Skip pages with no useful catalog content (covers, table of contents, pure photos, safety warnings, ordering instructions, contact info).\n'+
-  '- Do not invent or guess content that is not present in the text below. If you truly cannot tell what belongs to an item number, still record the item_no with empty technical_specs/features/applications rather than omitting it.\n'+
+  '- Do not invent or guess content that is not present in the text below. If you truly cannot tell what belongs to an item number, still record the item_no with empty technical_specs/applications rather than omitting it.\n'+
   '- Table columns are often printed close together with no visible divider between them. Never place a value from one column under a different column\'s label just because it sits nearby - e.g. in a table with adjacent Width, Thickness, and Tooth-Count columns, a width-in-millimeters figure must never be recorded under a Tooth-Count (or any other neighboring column\'s) label just because it happens to be positioned close to it. If you are not confident which column a value belongs to, it is better to omit that value than to guess and attach it to the wrong spec name.\n'+
   '- Never invent a technical_specs KEY from a bolded heading, product name, or section title printed above a table - those describe the whole product line, not a single spec, and must only ever be used for the "family" field, never as a spec label.\n'+
   '- Respond with ONLY a JSON array. No markdown, no explanation, no code fences.\n\n'+
@@ -4930,7 +4929,20 @@ async function extractChunkPages(chunkPages, opts){
             if(vs&&ks)technicalSpecs[ks]=vs;
           });
         }
-        var features=Array.isArray(e.features)?e.features.map(function(f){return String(f).trim();}).filter(Boolean):[];
+        // Round 54 (Ahmed: "take the feature out since everything is
+        // collected by the technical [specs] ... keep the application" -
+        // real data showed Features was mostly restating facts already
+        // captured as clean technical_specs values, e.g. "Black oxide
+        // finish" duplicating Finish: Black Oxide, which is exactly what
+        // let a family-wide sharing step mix up two genuinely different
+        // items. The extraction prompt no longer asks for "features" at
+        // all - every descriptive/construction fact it used to go into now
+        // goes into technical_specs instead (with its own short field
+        // name), so there's nothing left to accidentally duplicate. This
+        // stays a plain [] (not removed from the entry shape) so any code
+        // downstream that still defensively reads .features keeps working
+        // unchanged - it just never has anything in it going forward.
+        var features=[];
         var applications=Array.isArray(e.applications)?e.applications.map(function(a){return String(a).trim();}).filter(Boolean):[];
         var entry={item_no:itemNo,family:family,technical_specs:technicalSpecs,features:features,applications:applications,_srcPages:chunkPages.slice()};
         catalogEntries.push(entry);
@@ -5416,15 +5428,14 @@ function buildMasterRecordPrompt(excelSpecsText,pdfItemText,pdfFamilyText,confli
   'CATALOG DATA - general to this item\'s product line (may or may not apply to this specific item - use judgment):\n'+(pdfFamilyText||'(none)')+'\n\n'+
   'KNOWN CONFLICTS between the two sources (do not silently pick one - if a field below is a conflict, include BOTH values in technical_specs, clearly labeled by source, e.g. "Length (spec sheet)": "6\\"", "Length (catalog)": "4\\""):\n'+conflictText+'\n\n'+
   'Combine everything above into one clean structured record:\n'+
-  '{"technical_specs": {"<field name>": "<value>", ...}, "family_wide_fields": ["<field name>", ...], "features": ["<short 2-5 word phrase>", ...], "applications": ["<short 2-5 word phrase>", ...]}\n\n'+
+  '{"technical_specs": {"<field name>": "<value>", ...}, "family_wide_fields": ["<field name>", ...], "applications": ["<short 2-5 word phrase>", ...]}\n\n'+
   'RULES:\n'+
-  '- technical_specs: every measurable/nameable spec present in either source. Deduplicate if both sources say the same thing; if they conflict, include both as described above.\n'+
+  '- technical_specs: every measurable/nameable fact present in either source about what the product IS, HAS, or is MADE OF/BUILT LIKE - dimensions, material, finish, construction/design traits, certifications, general descriptive claims, all of it. This includes facts stated in flowing prose, not just ones printed as a table row - give a prose-stated fact its own short, sensible field name (e.g. "Construction", "Coating") rather than leaving it out just because it wasn\'t in a labeled table. Deduplicate if both sources say the same thing; if they conflict, include both as described above.\n'+
   '- family_wide_fields: list the technical_specs field NAMES (exactly as you wrote them above) whose value you took from the "general to this item\'s product line" catalog text - i.e. the value describes the whole product line/family the same way for every item in it, not something specific to this one item (e.g. a shared material, finish, or construction description that applies line-wide). Do NOT list a field whose value is specific to this item (e.g. this item\'s own size, length, weight, or anything that genuinely varies between items in the same line). If nothing qualifies, use an empty array. This works the same way for any kind of product - judge it purely from whether the source text you pulled that value from was the shared family text or this item\'s own specific text, never from the field\'s name.\n'+
-  '- features: short phrases describing what the product IS or HAS.\n'+
-  '- applications: short phrases describing what it\'s used for - pull these from "Recommended Uses"/"Applications"-style fields in either source, not just catalog prose.\n'+
-  '- The "general to this item\'s product line" catalog data may describe a GROUP of different item types shown together under one shared heading (for example, one heading covering several pilot drills AND a separate extension, or several arbors AND an adaptor). Only pull a spec, feature, or product-form claim from that family text if it is actually consistent with what the CATALOG DATA - specific to this item (or the spec sheet) says this exact item is. Never let the family text override, dilute, or contradict the item\'s own specific data - e.g. do not describe an item as an "Extension" (or give it an extension\'s length) if its own specific text describes it as a pilot drill, and do not drop an item\'s own stated form (e.g. "Extension") in favor of a generic phrase copied from the shared family heading just because that heading mentions it.\n'+
+  '- applications: short phrases describing what it\'s used for - pull these from "Recommended Uses"/"Applications"-style fields in either source, not just catalog prose. This is the only place for USE/SUITABILITY phrases (what it\'s FOR) - everything about what the product IS or HAS belongs in technical_specs instead, never restated here too.\n'+
+  '- The "general to this item\'s product line" catalog data may describe a GROUP of different item types shown together under one shared heading (for example, one heading covering several pilot drills AND a separate extension, or several arbors AND an adaptor). Only pull a spec or product-form claim from that family text if it is actually consistent with what the CATALOG DATA - specific to this item (or the spec sheet) says this exact item is. Never let the family text override, dilute, or contradict the item\'s own specific data - e.g. do not describe an item as an "Extension" (or give it an extension\'s length) if its own specific text describes it as a pilot drill, and do not drop an item\'s own stated form (e.g. "Extension") in favor of a generic phrase copied from the shared family heading just because that heading mentions it.\n'+
   '- If the family-wide catalog data describes a fact that depends on THIS item\'s own size/variant (e.g. "sizes 3/16\\" and larger have a 3-flat shank, smaller sizes have no flats"), determine which single case actually applies to this specific item using its own spec sheet/catalog data (its size, its own stated attributes), and state ONLY that one resolved fact in technical_specs. Never state two mutually exclusive possibilities together in the same field (e.g. never write a Shank Type of "3-flat shank design, no flats on shank") - pick the one that is actually true for this item.\n'+
-  '- If genuinely no data exists for one of the three fields, use an empty object/array for it rather than guessing.\n'+
+  '- If genuinely no data exists for one of the fields, use an empty object/array for it rather than guessing.\n'+
   '- Respond with ONLY the JSON object. No markdown, no explanation, no code fences.';
 }
 async function buildMasterRecords(isResume){
@@ -5490,7 +5501,6 @@ async function buildMasterRecords(isResume){
         var rec={technical_specs:{},features:[],applications:[]};
         if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
           if(parsed.technical_specs&&typeof parsed.technical_specs==='object'&&!Array.isArray(parsed.technical_specs))rec.technical_specs=parsed.technical_specs;
-          if(Array.isArray(parsed.features))rec.features=parsed.features.map(function(f){return String(f).trim();}).filter(Boolean);
           if(Array.isArray(parsed.applications))rec.applications=parsed.applications.map(function(a){return String(a).trim();}).filter(Boolean);
           if(Array.isArray(parsed.family_wide_fields))rec.familySourcedKeys=parsed.family_wide_fields.map(function(f){return String(f).trim();}).filter(Boolean);
         }
@@ -5583,7 +5593,6 @@ async function retryFailedMasterRecords(){
         var rec={technical_specs:{},features:[],applications:[]};
         if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)){
           if(parsed.technical_specs&&typeof parsed.technical_specs==='object'&&!Array.isArray(parsed.technical_specs))rec.technical_specs=parsed.technical_specs;
-          if(Array.isArray(parsed.features))rec.features=parsed.features.map(function(f){return String(f).trim();}).filter(Boolean);
           if(Array.isArray(parsed.applications))rec.applications=parsed.applications.map(function(a){return String(a).trim();}).filter(Boolean);
           if(Array.isArray(parsed.family_wide_fields))rec.familySourcedKeys=parsed.family_wide_fields.map(function(f){return String(f).trim();}).filter(Boolean);
         }
@@ -5617,7 +5626,7 @@ async function retryFailedMasterRecords(){
 function renderMasterRecords(){
   var tbody=document.getElementById('mg3-tbody');
   if(!masterRecordOrder.length&&!masterRecordFailures.length){
-    tbody.innerHTML='<tr><td colspan="5" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No master records yet.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="4" style="color:var(--faint);font-style:italic;text-align:center;font-family:monospace;padding:18px;">No master records yet.</td></tr>';
     document.getElementById('mg3-meta').textContent='0 records';
     return;
   }
@@ -5628,17 +5637,17 @@ function renderMasterRecords(){
     var r=masterRecords[bKey];
     if(!r)continue;
     var specsText=Object.keys(r.technical_specs||{}).map(function(k){return k+': '+r.technical_specs[k];}).join(', ');
-    var familyNote=r.familySharedFrom?('<br><span class="uz-sub" style="font-size:9px;">&#9851; features/applications shared with '+esc(r.familySharedFrom)+' (same catalog family)</span>'):'';
+    var familyNote=r.familySharedFrom?('<br><span class="uz-sub" style="font-size:9px;">&#9851; applications shared with '+esc(r.familySharedFrom)+' (same catalog family)</span>'):'';
     var specNormNote=(r.specsNormalized&&r.specsNormalized.length)?('<br><span class="uz-sub" style="font-size:9px;">&#9851; '+esc(r.specsNormalized.join(', '))+' wording aligned to match the rest of this family</span>'):'';
     var specConflictNote=(r.specConflicts&&r.specConflicts.length)?('<br><span class="uz-sub" style="font-size:9px;color:#b45309;">&#9888; '+esc(r.specConflicts.join(', '))+' states two conflicting values for this item - needs a manual check</span>'):'';
-    rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+specNormNote+specConflictNote+'</td><td class="td-main">'+esc((r.features||[]).join('; ').slice(0,120))+familyNote+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+'</td></tr>';
+    rows+='<tr><td class="td-pn">'+esc(bKey)+'</td><td>'+esc(r.sources||'')+'</td><td class="td-main">'+esc(specsText.slice(0,150))+specNormNote+specConflictNote+'</td><td class="td-main">'+esc((r.applications||[]).join('; ').slice(0,120))+familyNote+'</td></tr>';
   }
   // Round 25c: failed items (skipped, not blocked) show up as their own rows
   // so it's visible which items still need "Retry Failed Items" - Product
   // Name/etc. already fall back to the raw merged row for these in the
   // meantime, so nothing is missing from the rest of the pipeline.
   masterRecordFailures.forEach(function(f){
-    rows+='<tr style="background:rgba(180,83,9,0.08);"><td class="td-pn">'+esc(f.baseKey)+'</td><td colspan="4" style="color:#b45309;">⚠ Failed to build: '+esc(f.error||'')+' - using raw merged row data instead. Click "Retry Failed Items" to try again.</td></tr>';
+    rows+='<tr style="background:rgba(180,83,9,0.08);"><td class="td-pn">'+esc(f.baseKey)+'</td><td colspan="3" style="color:#b45309;">⚠ Failed to build: '+esc(f.error||'')+' - using raw merged row data instead. Click "Retry Failed Items" to try again.</td></tr>';
   });
   tbody.innerHTML=rows;
   var meta=masterRecordOrder.length+' record(s)'+(masterRecordOrder.length>300?' (showing first 300)':'');
@@ -5647,14 +5656,14 @@ function renderMasterRecords(){
 }
 function downloadMasterRecords(){
   if(!masterRecordOrder.length){alert('No master records built yet.');return;}
-  var rows=[['Base Item','Sources','Technical Specs','Features','Applications']];
+  var rows=[['Base Item','Sources','Technical Specs','Applications']];
   masterRecordOrder.forEach(function(bKey){
     var r=masterRecords[bKey];
     if(!r)return;
     var specsText=Object.keys(r.technical_specs||{}).map(function(k){return k+': '+r.technical_specs[k];}).join(', ');
-    rows.push([bKey,r.sources||'',specsText,(r.features||[]).join('; '),(r.applications||[]).join('; ')]);
+    rows.push([bKey,r.sources||'',specsText,(r.applications||[]).join('; ')]);
   });
-  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:16},{wch:20},{wch:60},{wch:40},{wch:40}];
+  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:16},{wch:20},{wch:60},{wch:40}];
   XLSX.utils.book_append_sheet(wb2,ws,'Master Records');XLSX.writeFile(wb2,'master-records.xlsx');
 }
 // ---- Phase 5: QA ----
@@ -5736,7 +5745,7 @@ function runDeterministicQA(){
     var rec=masterRecords[bKey];
     var hasData=rec?((Object.keys(rec.technical_specs||{}).length>0)||(rec.features||[]).length>0||(rec.applications||[]).length>0):!!(row['Key Specs']||row['Additional Info 1']||row['Additional Info 2']);
     if(!hasData){
-      flags.push({baseKey:bKey,partNumber:row['Part Number'],type:'thin',detail:'No technical specs, features, or applications found for this item from any source - generated content for it is likely to be very weak.'});
+      flags.push({baseKey:bKey,partNumber:row['Part Number'],type:'thin',detail:'No technical specs or applications found for this item from any source - generated content for it is likely to be very weak.'});
     }
   });
   // Round 32, Fix 1: flag any Highlights/Description/Specs Table field
@@ -6376,14 +6385,13 @@ function useMergedData(){
 }
 function downloadCatalogIndex(){
   if(!catalogEntries.length){alert('No catalog data extracted yet.');return;}
-  var rows=[['Item No.','Product Family','Technical Specs','Features','Applications','Extracted Content (combined)']];
+  var rows=[['Item No.','Product Family','Technical Specs','Applications','Extracted Content (combined)']];
   catalogEntries.forEach(function(e){
     var specsText=e.technical_specs?Object.keys(e.technical_specs).map(function(k){return k+': '+e.technical_specs[k];}).join(', '):'';
-    var featuresText=e.features?e.features.join('; '):'';
     var appsText=e.applications?e.applications.join('; '):'';
-    rows.push([e.item_no||'',e.family||'',specsText||e.content||'',featuresText,appsText,flattenEntryText(e)]);
+    rows.push([e.item_no||'',e.family||'',specsText||e.content||'',appsText,flattenEntryText(e)]);
   });
-  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:14},{wch:36},{wch:50},{wch:40},{wch:40},{wch:90}];
+  var wb2=XLSX.utils.book_new();var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:14},{wch:36},{wch:50},{wch:40},{wch:90}];
   XLSX.utils.book_append_sheet(wb2,ws,'Catalog Extract');XLSX.writeFile(wb2,'catalog-extract.xlsx');
 }
 function downloadMergedXLSX(){
