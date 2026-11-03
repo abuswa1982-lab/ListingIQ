@@ -882,6 +882,102 @@ function getCategoryExampleForRow(i){
   var cat = categoryLibrary.categories[map[i]];
   return cat ? (cat.exampleTitle||null) : null;
 }
+// Returns the resolved canonical category NAME for row i this run (not just
+// its example title text) - same lookup getCategoryExampleForRow() does,
+// factored out so buildCategoryTitleTemplate() (below) can look up the
+// category's exampleItem/rawLabels too, not just its title string.
+function getCategoryNameForRow(i){
+  var map = runState.t1.categoryMap;
+  if(!map || !map[i]) return null;
+  return map[i];
+}
+// Round 55 (Ahmed, real data: he approved ONE title for J150114 - "Alfa
+// Tools J150114 17/64\" Black Oxide Jobber Drill Bit 118° Point High-Speed
+// Steel" - and expected every other Jobber Drill to follow it exactly. But
+// J150097 (a DIFFERENT catalog family within the same approved category)
+// came back as "Alfa Tools J150097 Super High-Speed Steel Jobber Drills 118
+// Point" - a completely different shape. Root cause confirmed in code: the
+// round 48/50 family-template mechanism only reuses a title VERBATIM within
+// one family; the first member of every NEW family still needs a fresh AI
+// call that's merely INSTRUCTED to copy the approved example's structure
+// (buildTitlePrompt's exampleBlock) - and a real AI call can still
+// reorder/drop/reword slots despite that instruction, especially once this
+// catalog has dozens of families under one category, each rolling the dice
+// once. Ahmed's own framing: "if we approve that, why don't we use that
+// damn thing?"
+//
+// This builds a genuinely deterministic, zero-AI-call title template for
+// an entire CATEGORY (not just one family) by finding the category's own
+// exampleTitle's literal substrings that match its exampleItem's real
+// technical_specs values (and its own part number), and replacing each with
+// a {{TOKEN}} - the exact same token scheme substituteFamilyTokens() already
+// uses for the proven, working per-family substitution. ANY item matched to
+// this category can then get its title built by pure string substitution,
+// with no AI call and nothing left to drift, REGARDLESS of which family
+// it's in.
+//
+// Safety: this only ever returns a template when rebuilding it with the
+// example item's own real values (the exact substitution every other item
+// will also go through) reproduces the approved title EXACTLY, byte for
+// byte. If the approved title doesn't literally contain the example item's
+// own spec values as plain substrings (e.g. it was hand-edited away from
+// the source data, or the example item's master record isn't available in
+// this run), this returns null and the caller falls back to the existing
+// per-family AI-generation path - unchanged, exactly as before this round.
+// Nothing about this can make a title WORSE than before; it can only
+// replace a risky fresh AI call with a verified-safe substitution.
+function buildCategoryTitleTemplate(catName,brand){
+  var cat = catName ? categoryLibrary.categories[catName] : null;
+  if(!cat || !cat.exampleTitle || !cat.exampleItem) return null;
+  var exPn = cat.exampleItem;
+  var exRow = null;
+  for(var i=0;i<(fileData||[]).length;i++){
+    if(getPN(fileData[i])===exPn){ exRow=fileData[i]; break; }
+  }
+  if(!exRow) return null;
+  var exBKey = baseItemKey(exPn);
+  var exRec = exBKey ? masterRecords[exBKey] : null;
+  if(!exRec || !exRec.technical_specs || !Object.keys(exRec.technical_specs).length) return null;
+  var exBrand = getBrand(exRow,brand);
+  var title = cat.exampleTitle;
+  // The mandatory Brand+PN prefix is kept exactly as the existing per-family
+  // mechanism already handles it (round 50): brand stays literal text (it's
+  // already constant for a run via the override or each row's own Brand
+  // column, same assumption the family mechanism makes), only the part
+  // number itself is tokenized.
+  var prefix = exBrand+' '+exPn;
+  if(title.indexOf(prefix)!==0) return null;
+  var pnToken = specKeyToToken('PART_NUMBER');
+  var tokenized = exBrand+' '+pnToken+title.slice(prefix.length);
+  // Longest values first, so a short value (e.g. "1") can never consume
+  // part of a longer value's text (e.g. "118°") before the longer one gets
+  // its turn - each replacement removes that exact span from the pool for
+  // every later, shorter candidate.
+  var fields = Object.keys(exRec.technical_specs).map(function(k){
+    return {key:k, val:String(exRec.technical_specs[k]||'').trim()};
+  }).filter(function(f){return f.val && f.val.length>=2;})
+    .sort(function(a,b){return b.val.length-a.val.length;});
+  var fieldKeys = [];
+  fields.forEach(function(f){
+    var idx = tokenized.indexOf(f.val);
+    if(idx===-1) return;
+    var token = specKeyToToken(f.key);
+    tokenized = tokenized.slice(0,idx)+token+tokenized.slice(idx+f.val.length);
+    fieldKeys.push(f.key);
+  });
+  // Self-consistency check: feeding the example item's OWN real values back
+  // through the exact same substitution every other item will use must
+  // reproduce the approved title exactly. This is what makes the whole
+  // mechanism safe to trust blindly for every other item - if this doesn't
+  // round-trip perfectly, something about this category's approved title
+  // can't be safely tokenized this way, so it's rejected rather than risked.
+  var specsForCheck = {};
+  fieldKeys.forEach(function(k){specsForCheck[k]=exRec.technical_specs[k];});
+  specsForCheck.PART_NUMBER = exPn;
+  var roundTrip = substituteFamilyTokens(tokenized,fieldKeys.concat(['PART_NUMBER']),specsForCheck);
+  if(roundTrip!==title) return null;
+  return {tokenized:tokenized, fieldKeys:fieldKeys};
+}
 // Round 31: Highlights, Description, and the Specs Table had no template
 // mechanism at all - each item's field set (which specs appear, what
 // they're called, how many bullets) was independently reinvented every
@@ -920,6 +1016,21 @@ function saveCategoryFieldTemplateIfMissing(row,fieldKey,value){
 function categoryTemplateBlock(template,kindLabel){
   if(!template) return '';
   return '\n\nA '+kindLabel+' for this exact product category was already generated and is the FIXED FIELD SET to follow, not a loose style reference:\n'+template+'\n\nSTRICT RULES:\n1. Use the SAME set of attributes/fields as the reference above, in the SAME order - do not add a field that isn\'t in the reference, and do not invent a differently-named field for something the reference already covers (e.g. if the reference says "Material", never write "Material Construction" or "Construction" for this item).\n2. If THIS item genuinely has no data for one of the reference\'s fields, leave that one field out entirely - never show it empty or invent a placeholder value.\n3. Only the ACTUAL VALUES change - the field names, structure, and order must match the reference exactly.';
+}
+// Round 55 (Ahmed: "we can use the same details we have in HTML table to
+// use in the highlights"). Highlights and the HTML Specs Table were always
+// reading the exact same underlying master-record data, but each one
+// independently asked the AI to pick its OWN field set ("4-5 most
+// important" for Highlights vs. "6-10 most important" for the Table) -
+// confirmed in code, not a data gap, just two separate judgment calls that
+// didn't have to agree. This variant of categoryTemplateBlock() points
+// Highlights at the category's already-established Specs Table field set
+// (once one exists) instead of its own, so the two end up showing the same
+// attributes - reformatted into bullets, not asking the AI to re-decide
+// what matters every time.
+function categoryTemplateBlockFromTable(template,kindLabel){
+  if(!template) return '';
+  return '\n\nThis exact product category already has an approved HTML Specs Table (shown below, for reference only - do NOT output a table). Use the SAME SET of attribute/field names from it, in the SAME order, as the basis for this '+kindLabel+':\n'+template+'\n\nSTRICT RULES:\n1. Cover the SAME attributes as the table above, in the SAME order - do not add an attribute that isn\'t a row in that table, and do not invent a differently-named field for something the table already covers (e.g. if the table says "Material", never write "Material Construction" or "Construction" here).\n2. If THIS item genuinely has no data for one of the table\'s attributes, leave that one out entirely - never show it empty or invent a placeholder value.\n3. Only the ACTUAL VALUES and the output format (bullets, not a table) change - the set of attributes and their order must match the table exactly.';
 }
 // Round 40 (Ahmed's "Filter Table" request): derive a per-item filter
 // string deterministically from the item's ALREADY-GENERATED HTML Table
@@ -2899,6 +3010,19 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1,familyCo
   var masterRecT1=bKey?masterRecords[bKey]:null;
   var familyKeyT1=masterRecT1?masterRecT1.familyKey:null;
   var famCachedT1=(reuseVariantsOn()&&familyKeyT1&&familyContentCache1&&channel!=='all')?familyContentCache1[familyKeyT1]:null;
+  // Round 55: before ever falling back to a per-family AI call (or reusing
+  // one a PRIOR family already paid for), try a fully deterministic,
+  // zero-AI-call title built straight from this row's approved category
+  // pattern - see buildCategoryTitleTemplate() above for exactly why this
+  // is safe to trust blindly. This works regardless of which family the
+  // row is in, which is the whole point: Ahmed's approved J150114 title and
+  // J150097 landing in a different catalog family was exactly what let a
+  // fresh, risky AI call reinvent (and drift from) the approved structure
+  // before this round. Scoped to channel!=='all' for the same reason
+  // famCachedT1 above is - the 'all' path is legacy/unreachable from
+  // today's UI, which only offers the Website channel.
+  var catNameT1 = (channel!=='all') ? getCategoryNameForRow(i) : null;
+  var catTemplateT1 = (masterRecT1 && catNameT1) ? buildCategoryTitleTemplate(catNameT1,brand) : null;
   if(cached1){
     if(channel==='all'){
       var reusedEntry={partNumber:pn,row:rows[i],titles:{},reusedFrom:cached1.partNumber};
@@ -2910,6 +3034,26 @@ async function generateT1RowInto(i,rows,channel,brand,chs,variantCache1,familyCo
       var srcTitle=cached1.titles?(cached1.titles[channel]||cached1.title):cached1.title;
       results.t1.push({partNumber:pn,channel:channel,title:swapPNInTitle(srcTitle,cached1.partNumber,pn,CH[channel].max),row:rows[i],reusedFrom:cached1.partNumber});
     }
+  } else if(catTemplateT1){
+    // Round 55: pure string substitution, no AI call at all - this is what
+    // makes the title match Ahmed's approved pattern exactly, every time,
+    // for every family under this category, not just the one family whose
+    // first member happened to be generated first.
+    var subsSpecsT1c=Object.assign({},masterRecT1.technical_specs,{PART_NUMBER:pn});
+    var titleT1c=enforceLimit(substituteFamilyTokens(catTemplateT1.tokenized,catTemplateT1.fieldKeys.concat(['PART_NUMBER']),subsSpecsT1c),CH[channel].max);
+    var entryT1c={partNumber:pn,channel:channel,title:titleT1c,row:rows[i],reusedFrom:'category:'+catNameT1};
+    // Also seed the family cache, belt-and-suspenders: a sibling whose own
+    // category lookup might differ (e.g. stale categoryMap state across a
+    // Resume) still has a correct, already-resolved fallback available
+    // with no AI call needed either - never required for correctness on
+    // its own, since every family member independently recomputes the same
+    // deterministic template anyway.
+    if(familyKeyT1){
+      entryT1c.familyKey=familyKeyT1;entryT1c.familyTemplate=catTemplateT1.tokenized;entryT1c.familyVariantKeys=catTemplateT1.fieldKeys;
+      if(familyContentCache1)familyContentCache1[familyKeyT1]={html:catTemplateT1.tokenized,variantKeys:catTemplateT1.fieldKeys,sourcePN:pn};
+    }
+    results.t1.push(entryT1c);
+    if(bKey&&!(bKey in variantCache1))variantCache1[bKey]=entryT1c;
   } else if(famCachedT1){
     // Round 50 (Ahmed: "It was never fixed... can we fix it, please?").
     // Same mechanism as Highlights/Description/HTML Table (round 48): this
@@ -3246,11 +3390,25 @@ async function runTab2(isResume){
         results.t2.push(entry2b);
         if(bKey2&&!(bKey2 in variantCache2))variantCache2[bKey2]=entry2b;
       } else {
-        var hlTemplate = getCategoryFieldTemplate(row,'exampleHighlights');
+        // Round 55: prefer deriving Highlights' field set from this
+        // category's already-established HTML Specs Table template (if one
+        // exists yet) instead of Highlights' own independently-chosen set -
+        // this is what actually keeps the two showing the same details,
+        // since both already read the exact same master-record data anyway.
+        // Falls back to Highlights' own prior template (round 31, unchanged)
+        // when no table template exists for this category yet - e.g. the
+        // very first time a brand-new category is generated before HTML
+        // Table has ever been run for it.
+        var hlTableTemplate = getCategoryFieldTemplate(row,'exampleTable');
+        var hlOwnTemplate = hlTableTemplate ? null : getCategoryFieldTemplate(row,'exampleHighlights');
+        var hlBlock = hlTableTemplate ? categoryTemplateBlockFromTable(hlTableTemplate,'Highlights list') : categoryTemplateBlock(hlOwnTemplate,'Highlights list');
+        var bulletCountRule = hlTableTemplate
+          ? 'Generate one highlight bullet point for EACH attribute in the reference Specs Table below - the count should match that table, not a fixed number, since the whole point is for Highlights and the Specs Table to show the exact same details.'
+          : 'Generate exactly 4-5 highlight bullet points for this product listing.';
         var variantKeys2=familyKey2?familyVariantSpecKeys(familyKey2):[];
         var promptData2=(familyKey2&&variantKeys2.length)?getPromptDataForFamilyTemplate(row,pn,variantKeys2):getPromptData(row,pn);
         var familyNote2=(familyKey2&&variantKeys2.length)?('\n\nNOTE: some Technical Specs values below are placeholder tokens like '+specKeyToToken(variantKeys2[0])+' because this exact content will be reused verbatim for OTHER sizes in this same product family. Keep every token EXACTLY as written, wherever that spec would naturally appear - do not translate, explain, remove, or invent a real value for it. Every other value shown is real and specific - do not tokenize anything that is not already shown as a token.'):'';
-        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\nGenerate exactly 4-5 highlight bullet points for this product listing.\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity (e.g. "Packaged 5 per box") as a highlight - not a buyer-facing spec worth a bullet here\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+categoryTemplateBlock(hlTemplate,'Highlights list')+familyNote2+'\n\nPRODUCT DATA:\n'+JSON.stringify(promptData2,null,2);
+        var prompt='You are a product content specialist for industrial and B2B e-commerce.\n\n'+bulletCountRule+'\n\nRULES:\n- Each bullet must lead with a KEY ATTRIBUTE name in bold HTML: <strong>Attribute Name:</strong> then the value\n- Attributes must be the most important, searchable, buyer-relevant specs for this product category\n- Do NOT include a "Part Number" or "Brand" bullet - those are already shown separately elsewhere in the listing, and including them here causes them to go stale for pack-size sibling items (e.g. a 5-pack vs. a 50-pack of the same product) that intentionally reuse this exact same content\n- Do NOT include packaging or box/pack quantity (e.g. "Packaged 5 per box") as a highlight - not a buyer-facing spec worth a bullet here\n- Each bullet 10-18 words maximum\n- No fluff, no marketing language, no "perfect for" phrases\n- Focus on: material, dimensions, capacity, compatibility, certification, finish, drive type, weight - whatever matters most for this specific product type\n- Output must be valid HTML: a <ul> with <li> items only\n- No preamble, no explanation, just the HTML'+VARIANT_EXCLUSION+DATA_FIDELITY_RULE+hlBlock+familyNote2+'\n\nPRODUCT DATA:\n'+JSON.stringify(promptData2,null,2);
         // Round 49: Ahmed hit the same max_tokens/"thinking"-only cutoff
         // here that Product Name and Build Master Records hit before
         // (rounds 22/23/38) - the model spends its whole budget reasoning
@@ -3270,7 +3428,11 @@ async function runTab2(isResume){
         }
         results.t2.push(entry2);
         if(bKey2&&!(bKey2 in variantCache2))variantCache2[bKey2]=entry2;
-        if(!hlTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleHighlights',rhtml);
+        // Only save Highlights' own fallback template when there's no table
+        // template to derive from yet - once a table template exists it's
+        // always preferred above, so there's nothing to gain (and a stale
+        // independent template to avoid accumulating) by also saving this.
+        if(!hlTableTemplate&&!hlOwnTemplate) saveCategoryFieldTemplateIfMissing(row,'exampleHighlights',rhtml);
       }
       renderTab('t2',results.t2);
     } catch (rowErr) {
