@@ -604,7 +604,7 @@ var runState = {t1:{resumeFrom:null,channel:null,categoryMap:null}, t2:{resumeFr
 // actually provided (which itself comes only from the uploaded spec sheet
 // and/or catalog) - nothing invented, nothing filled in from the model's
 // general knowledge of the product category.
-var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- Do NOT add a generic explanation of HOW or WHY a feature works or matters unless that explanation is itself present in the PRODUCT DATA. For example, do not add filler like "helps center the hole saw and guide accurate, clean cuts," "quick, secure attachment to compatible drills and drivers," "for proper fitment onto matching hole saws," or "for durable cutting performance" - stating a spec (e.g. a shank size) is fine; adding the reason it\'s beneficial is not, unless the PRODUCT DATA says so.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.';
+var DATA_FIDELITY_RULE = '\n\nSTRICT ACCURACY RULE:\n- Every fact, spec, attribute, material, certification, or use-case you state MUST come directly from the PRODUCT DATA below.\n- Do NOT invent, infer, assume, or add anything not explicitly present in the PRODUCT DATA, even if it seems like a safe or typical assumption for this kind of product.\n- Do NOT add a generic explanation of HOW or WHY a feature works or matters unless that explanation is itself present in the PRODUCT DATA. For example, do not add filler like "helps center the hole saw and guide accurate, clean cuts," "quick, secure attachment to compatible drills and drivers," "for proper fitment onto matching hole saws," or "for durable cutting performance" - stating a spec (e.g. a shank size) is fine; adding the reason it\'s beneficial is not, unless the PRODUCT DATA says so.\n- If there is not enough information in the PRODUCT DATA for something you would normally include, simply leave it out rather than guessing.\n- Ignore any fields that look like leftover spreadsheet artifacts rather than real product attributes (e.g. generic names like "Column8", "Column9", blank values, or internal notes) - these are not real specs.\n- If a spec in the PRODUCT DATA is already resolved to ONE specific value for this exact item (e.g. Finish: "Black Oxide"), state ONLY that value - do not also mention, list, or reference any OTHER value that applies to a different item in the same product family/line (e.g. never add "also available in Bright Finish," "Finish options include Black Oxide or Bright Finish," or similar). Mentioning the option that does NOT apply to this specific item is exactly as wrong as stating the wrong value outright - it tells the reader this item might be either one.';
 // ============================================================================
 // Round 25: Category Rules - a saved, per-category library of approved title
 // patterns, built up over time instead of the app (or a general AI model)
@@ -930,15 +930,36 @@ function buildCategoryTitleTemplate(catName,brand){
   var cat = catName ? categoryLibrary.categories[catName] : null;
   if(!cat || !cat.exampleTitle || !cat.exampleItem) return null;
   var exPn = cat.exampleItem;
-  var exRow = null;
-  for(var i=0;i<(fileData||[]).length;i++){
-    if(getPN(fileData[i])===exPn){ exRow=fileData[i]; break; }
+  var exBrand, exSpecs, needsPersist=false;
+  if(cat.exampleSpecs && cat.exampleBrand){
+    // Round 55b: a persisted snapshot already exists (captured the moment
+    // Ahmed reviewed/approved this category, or self-healed by an earlier
+    // run below) - use it directly. This is what makes the mechanism work
+    // reliably across ENTIRELY DIFFERENT catalog files over time: a saved
+    // category's approved example item is very often from a different
+    // page/product line than whatever file happens to be open today, so
+    // requiring that exact item to still be in THIS file (the only option
+    // before this round) made the deterministic path silently - but
+    // safely - refuse to engage far more often than it needed to.
+    exBrand = cat.exampleBrand;
+    exSpecs = cat.exampleSpecs;
+  } else {
+    // No snapshot yet (a category approved before this round) - fall back
+    // to a live lookup in today's file, same as before. If this succeeds,
+    // persist what was found so every future run, with any file, no
+    // longer needs this exact item to be present again.
+    var exRow = null;
+    for(var i=0;i<(fileData||[]).length;i++){
+      if(getPN(fileData[i])===exPn){ exRow=fileData[i]; break; }
+    }
+    if(!exRow) return null;
+    var exBKey = baseItemKey(exPn);
+    var exRec = exBKey ? masterRecords[exBKey] : null;
+    if(!exRec || !exRec.technical_specs || !Object.keys(exRec.technical_specs).length) return null;
+    exBrand = getBrand(exRow,brand);
+    exSpecs = exRec.technical_specs;
+    needsPersist = true;
   }
-  if(!exRow) return null;
-  var exBKey = baseItemKey(exPn);
-  var exRec = exBKey ? masterRecords[exBKey] : null;
-  if(!exRec || !exRec.technical_specs || !Object.keys(exRec.technical_specs).length) return null;
-  var exBrand = getBrand(exRow,brand);
   var title = cat.exampleTitle;
   // The mandatory Brand+PN prefix is kept exactly as the existing per-family
   // mechanism already handles it (round 50): brand stays literal text (it's
@@ -953,8 +974,8 @@ function buildCategoryTitleTemplate(catName,brand){
   // part of a longer value's text (e.g. "118°") before the longer one gets
   // its turn - each replacement removes that exact span from the pool for
   // every later, shorter candidate.
-  var fields = Object.keys(exRec.technical_specs).map(function(k){
-    return {key:k, val:String(exRec.technical_specs[k]||'').trim()};
+  var fields = Object.keys(exSpecs).map(function(k){
+    return {key:k, val:String(exSpecs[k]||'').trim()};
   }).filter(function(f){return f.val && f.val.length>=2;})
     .sort(function(a,b){return b.val.length-a.val.length;});
   var fieldKeys = [];
@@ -972,10 +993,15 @@ function buildCategoryTitleTemplate(catName,brand){
   // round-trip perfectly, something about this category's approved title
   // can't be safely tokenized this way, so it's rejected rather than risked.
   var specsForCheck = {};
-  fieldKeys.forEach(function(k){specsForCheck[k]=exRec.technical_specs[k];});
+  fieldKeys.forEach(function(k){specsForCheck[k]=exSpecs[k];});
   specsForCheck.PART_NUMBER = exPn;
   var roundTrip = substituteFamilyTokens(tokenized,fieldKeys.concat(['PART_NUMBER']),specsForCheck);
   if(roundTrip!==title) return null;
+  if(needsPersist){
+    cat.exampleSpecs = exSpecs;
+    cat.exampleBrand = exBrand;
+    saveCategoryLibrary();
+  }
   return {tokenized:tokenized, fieldKeys:fieldKeys};
 }
 // Round 31: Highlights, Description, and the Specs Table had no template
@@ -1544,6 +1570,32 @@ function decideCategoryCard(idx,type){
   }
   renderCategoryReview();
 }
+// Round 55b (Ahmed, real data: "Manage saved categories" showed the
+// approved "Jobber Drills" example was BBN74505 - a different product line
+// than the J150097 family he was actually testing - and round 55's
+// deterministic title template correctly, safely refused to use it (that
+// exact item's real spec values weren't in THIS catalog file to tokenize
+// against), silently falling back to the old per-family AI call, which is
+// exactly the risky path that produced the bad title again). A saved
+// category's approved example item is frequently from a DIFFERENT page/
+// product line than whatever file is open on any later run - categories
+// persist in this browser across every catalog Ahmed ever uploads, not
+// just the one that was open when a category got approved. Capturing a
+// permanent snapshot of the example item's own real technical_specs right
+// here, at the moment Ahmed actually reviews/confirms a category (when
+// item.exampleRow is guaranteed to be a row from THIS run's own file),
+// means the deterministic template never again depends on that same exact
+// item still being present in some future file - it only ever needs to
+// have been present ONCE, the moment it was approved.
+function snapshotCategoryExample(exampleRow,brand){
+  if(!exampleRow) return null;
+  var exPn = getPN(exampleRow);
+  if(!exPn) return null;
+  var exBKey = baseItemKey(exPn);
+  var exRec = exBKey ? masterRecords[exBKey] : null;
+  if(!exRec || !exRec.technical_specs || !Object.keys(exRec.technical_specs).length) return null;
+  return {exampleItem:exPn, exampleSpecs:Object.assign({},exRec.technical_specs), exampleBrand:getBrand(exampleRow,brand)};
+}
 function continueCategoryReview(){
   if(!activeCatReview) return;
   var allDone = activeCatReview.queue.every(function(item){return !!item.decision;});
@@ -1560,14 +1612,34 @@ function continueCategoryReview(){
       if(cat2){
         cat2.rawLabels = cat2.rawLabels||[];
         if(cat2.rawLabels.indexOf(item.norm)===-1) cat2.rawLabels.push(item.norm);
-        if(d.title) cat2.exampleTitle = d.title;
+        if(d.title && d.title!==cat2.exampleTitle){
+          cat2.exampleTitle = d.title;
+          // The title text itself changed (Ahmed edited the box, or it's
+          // genuinely different from what was saved before) - any
+          // previously-captured snapshot was tokenized against the OLD
+          // text and can no longer be trusted, so re-anchor to THIS
+          // review's own current-file example item instead.
+          var snap=snapshotCategoryExample(item.exampleRow,activeCatReview.brand);
+          if(snap){ cat2.exampleItem=snap.exampleItem; cat2.exampleSpecs=snap.exampleSpecs; cat2.exampleBrand=snap.exampleBrand; }
+          else { delete cat2.exampleSpecs; delete cat2.exampleBrand; }
+        } else if(!cat2.exampleSpecs){
+          // Title text unchanged, but no snapshot captured yet (a category
+          // approved before this round, or one whose first snapshot
+          // attempt never found a live match) - take this chance to
+          // capture one now, since item.exampleRow is guaranteed current.
+          var snap2=snapshotCategoryExample(item.exampleRow,activeCatReview.brand);
+          if(snap2){ cat2.exampleItem=snap2.exampleItem; cat2.exampleSpecs=snap2.exampleSpecs; cat2.exampleBrand=snap2.exampleBrand; }
+        }
       }
       canonicalByKey[item.key] = d.canonicalName;
     } else if(d.type==='approve'){
       var existing = categoryLibrary.categories[d.canonicalName];
       var rawLabels = existing ? (existing.rawLabels||[]).slice() : [];
       if(rawLabels.indexOf(item.norm)===-1) rawLabels.push(item.norm);
-      categoryLibrary.categories[d.canonicalName] = {exampleTitle:d.title,exampleItem:getPN(item.exampleRow),rawLabels:rawLabels};
+      var newCat = {exampleTitle:d.title,exampleItem:getPN(item.exampleRow),rawLabels:rawLabels};
+      var snap3=snapshotCategoryExample(item.exampleRow,activeCatReview.brand);
+      if(snap3){ newCat.exampleSpecs=snap3.exampleSpecs; newCat.exampleBrand=snap3.exampleBrand; }
+      categoryLibrary.categories[d.canonicalName] = newCat;
       canonicalByKey[item.key] = d.canonicalName;
     }
   });
@@ -1915,6 +1987,15 @@ function editCategoryExamplePrompt(name){
   if(newTitle===null) return;
   newTitle = newTitle.trim();
   if(!newTitle){ alert('The example title can\'t be empty.'); return; }
+  if(newTitle!==cat.exampleTitle){
+    // Round 55b: the title text just changed, so any previously-captured
+    // exampleSpecs snapshot (tokenized against the OLD text) can no longer
+    // be trusted - it'll get re-captured safely the next time this
+    // category comes up for review, or the next time buildCategoryTitleTemplate()
+    // finds the example item live in some future file.
+    delete cat.exampleSpecs;
+    delete cat.exampleBrand;
+  }
   cat.exampleTitle = newTitle;
   saveCategoryLibrary();
   renderCategoryManager();
@@ -5596,7 +5677,7 @@ function buildMasterRecordPrompt(excelSpecsText,pdfItemText,pdfFamilyText,confli
   '- family_wide_fields: list the technical_specs field NAMES (exactly as you wrote them above) whose value you took from the "general to this item\'s product line" catalog text - i.e. the value describes the whole product line/family the same way for every item in it, not something specific to this one item (e.g. a shared material, finish, or construction description that applies line-wide). Do NOT list a field whose value is specific to this item (e.g. this item\'s own size, length, weight, or anything that genuinely varies between items in the same line). If nothing qualifies, use an empty array. This works the same way for any kind of product - judge it purely from whether the source text you pulled that value from was the shared family text or this item\'s own specific text, never from the field\'s name.\n'+
   '- applications: short phrases describing what it\'s used for - pull these from "Recommended Uses"/"Applications"-style fields in either source, not just catalog prose. This is the only place for USE/SUITABILITY phrases (what it\'s FOR) - everything about what the product IS or HAS belongs in technical_specs instead, never restated here too.\n'+
   '- The "general to this item\'s product line" catalog data may describe a GROUP of different item types shown together under one shared heading (for example, one heading covering several pilot drills AND a separate extension, or several arbors AND an adaptor). Only pull a spec or product-form claim from that family text if it is actually consistent with what the CATALOG DATA - specific to this item (or the spec sheet) says this exact item is. Never let the family text override, dilute, or contradict the item\'s own specific data - e.g. do not describe an item as an "Extension" (or give it an extension\'s length) if its own specific text describes it as a pilot drill, and do not drop an item\'s own stated form (e.g. "Extension") in favor of a generic phrase copied from the shared family heading just because that heading mentions it.\n'+
-  '- If the family-wide catalog data describes a fact that depends on THIS item\'s own size/variant (e.g. "sizes 3/16\\" and larger have a 3-flat shank, smaller sizes have no flats"), determine which single case actually applies to this specific item using its own spec sheet/catalog data (its size, its own stated attributes), and state ONLY that one resolved fact in technical_specs. Never state two mutually exclusive possibilities together in the same field (e.g. never write a Shank Type of "3-flat shank design, no flats on shank") - pick the one that is actually true for this item.\n'+
+  '- If the family-wide catalog data describes a fact that depends on THIS item\'s own size/variant (e.g. "sizes 3/16\\" and larger have a 3-flat shank, smaller sizes have no flats" - or a non-size split, e.g. "available in Black Oxide or Bright Finish" where this exact item/stock-number is specifically one or the other), determine which single case actually applies to this specific item using its own spec sheet/catalog data (its size, its own stated attributes, its own stock number), and state ONLY that one resolved fact in technical_specs. Never state two mutually exclusive possibilities together in the same field (e.g. never write a Shank Type of "3-flat shank design, no flats on shank", or a Finish of "Black Oxide or Bright Finish") - pick the one that is actually true for this item. This applies to EVERY field, not just the one the family text happens to phrase as a simple either/or - and never work around it by inventing a SEPARATE field (e.g. "Finish Options", "Available Finishes") just to restate the other, non-applicable option elsewhere - once a field is resolved to this item\'s own real value, nothing else in the record should reintroduce the option that does NOT apply to it.\n'+
   '- If genuinely no data exists for one of the fields, use an empty object/array for it rather than guessing.\n'+
   '- Respond with ONLY the JSON object. No markdown, no explanation, no code fences.';
 }
