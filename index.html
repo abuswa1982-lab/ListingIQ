@@ -936,9 +936,110 @@ function getCategoryNameForRow(i){
 // per-family AI-generation path - unchanged, exactly as before this round.
 // Nothing about this can make a title WORSE than before; it can only
 // replace a risky fresh AI call with a verified-safe substitution.
+// Round 59 (Ahmed, after round 58b's one-click "Edit Title" fix still
+// produced the same drifted title: "I don't have the sizes... maybe we
+// need to say brand name, part number, size, material, category, split
+// point... that's how we want to build it, so you know exactly what
+// you're looking at"). Every version of this mechanism so far (rounds 50,
+// 55, 55b, 55c, 58, 58b) tried to DERIVE a title template by reverse-
+// engineering one free-text example sentence - fragile by nature, since it
+// only works if every field value happens to appear as an exact, literal,
+// non-overlapping substring of that one sentence, and a wrong/incomplete
+// example (or one nobody ever re-approved after it drifted) just silently
+// falls back to a fresh, riskier AI call forever.
+//
+// This instead lets Ahmed state the format directly and explicitly, once,
+// per category: an ordered list of which real spec fields appear and
+// where the category's own words go - no guessing, no text-diffing,
+// nothing to silently fail. Stored as cat.titleTemplate, an array of
+// {type:'spec',key} / {type:'literal',text} slots. Completely generic -
+// works for any category, any brand, any spec field names, nothing
+// hardcoded to drill bits.
+function buildExplicitCategoryTemplate(cat,brand){
+  if(!cat || !cat.titleTemplate || !cat.titleTemplate.length) return null;
+  var fieldKeys=[];
+  var seenKeys={};
+  var rest = cat.titleTemplate.map(function(slot){
+    if(slot.type==='literal') return slot.text||'';
+    if(!seenKeys[slot.key]){ seenKeys[slot.key]=true; fieldKeys.push(slot.key); }
+    return specKeyToToken(slot.key);
+  }).filter(function(s){return s && s.length;});
+  var tokenized = String(brand||'').trim()+' '+specKeyToToken('PART_NUMBER')+(rest.length?' '+rest.join(' '):'');
+  return {tokenized:tokenized, fieldKeys:fieldKeys};
+}
+// Finds a row from TODAY's file that genuinely belongs to a saved category
+// (matched the normal way, by its own raw Product Type text - never the
+// category's possibly-stale stored example) and has a reachable master
+// record, so the "Set/Edit Title Format" prompt can show Ahmed real,
+// current field names and values to build the template from, and preview
+// it immediately with real data.
+function findLiveCategoryExample(name){
+  var rows = fileData||[];
+  for(var i=0;i<rows.length;i++){
+    var raw = getRowCategoryRaw(rows[i]);
+    if(!raw) continue;
+    var m = matchCategory(raw);
+    if(m.canonical!==name) continue;
+    var pn = getPN(rows[i]);
+    var bKey = baseItemKey(pn);
+    var rec = bKey ? masterRecords[bKey] : null;
+    if(!rec || !rec.technical_specs || !Object.keys(rec.technical_specs).length) continue;
+    return {pn:pn, brand:getBrand(rows[i],''), specs:rec.technical_specs};
+  }
+  return null;
+}
+// Round 59b (Ahmed, pushing back hard on round 59's manual "pick your
+// fields by number" step: "what do you do when it's safety? what do you
+// do when it's a hand tool?... the category is already showing that those
+// things, and you cannot mimic it... why are we going through this step,
+// there's no point in this step"). He's right that asking him to
+// hand-configure field order per category, one category at a time, is
+// exactly the kind of manual busywork this whole project has been trying
+// to eliminate (same complaint, same shape, as "why do I need to build a
+// master record"). The data to build a correct title ALREADY exists for
+// any category that's ever had its HTML Specs Table generated (Ahmed's
+// Jobber Drills has been run for months, so it certainly has one) -
+// cat.exampleTable. This reads that table's own already-approved
+// attribute list, in its own already-approved order, completely
+// automatically, with NOTHING for Ahmed to configure: no clicking, no
+// numbering fields, nothing. The category name itself is inserted right
+// before the last attribute, mirroring every real example Ahmed has shown
+// ("...Material... Drill Bits... Point Angle°Split Point" - the category
+// words sit right before the one truly distinguishing spec). Generic by
+// construction: a Safety category's own table has its own attributes, a
+// Hand Tool category has its own - this never needs to know what kind of
+// category it's looking at, only read whatever table that category
+// already has.
+function buildCategoryTitleTemplateFromSpecsTable(cat,catName,brand){
+  if(!cat || !cat.exampleTable) return null;
+  var pairs = tableHtmlToPairs(cat.exampleTable);
+  if(!pairs.length) return null;
+  var fieldKeys = pairs.map(function(p){return p.attr;});
+  var parts = fieldKeys.map(function(k){return specKeyToToken(k);});
+  var labelPos = parts.length>1 ? parts.length-1 : parts.length;
+  parts.splice(labelPos,0,catName||'');
+  var tokenized = String(brand||'').trim()+' '+specKeyToToken('PART_NUMBER')+' '+parts.join(' ');
+  return {tokenized:tokenized, fieldKeys:fieldKeys};
+}
 function buildCategoryTitleTemplate(catName,brand){
   var cat = catName ? categoryLibrary.categories[catName] : null;
-  if(!cat || !cat.exampleTitle || !cat.exampleItem) return null;
+  if(!cat) return null;
+  if(cat.titleTemplate && cat.titleTemplate.length){
+    // An explicit, Ahmed-defined format always wins, and is always safe to
+    // trust - there's nothing to round-trip-check, since it was never
+    // guessed from text in the first place.
+    return buildExplicitCategoryTemplate(cat,brand);
+  }
+  var textDerived = buildTextDerivedCategoryTemplate(cat,brand);
+  if(textDerived) return textDerived;
+  // Round 59b: no usable approved-title text to derive from (or it
+  // couldn't be safely tokenized) - before giving up and falling back to a
+  // free-form AI call, try the category's own already-established Specs
+  // Table. Completely automatic, nothing for Ahmed to set up.
+  return buildCategoryTitleTemplateFromSpecsTable(cat,catName,brand);
+}
+function buildTextDerivedCategoryTemplate(cat,brand){
+  if(!cat.exampleTitle || !cat.exampleItem) return null;
   var exPn = cat.exampleItem;
   var exBrand, exSpecs, needsPersist=false;
   if(cat.exampleSpecs && cat.exampleBrand){
@@ -1944,14 +2045,22 @@ function renderCategoryManager(){
     var otherTemplateCount = ['exampleHighlights','exampleDescription'].filter(function(k){return !!cat[k];}).length;
     var filtersPreview = cat.exampleTable ? tableHtmlToFilterString(cat.exampleTable) : '';
     var filtersLine = '<div class="catmgr-meta" style="margin-top:4px;"><b>Filters (Specs Table):</b> '+(filtersPreview?esc(filtersPreview):'<i>not set yet - the first item generated in this category will set one</i>')+'</div>';
-    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in'+(otherTemplateCount?' &middot; '+otherTemplateCount+' content template'+(otherTemplateCount===1?'':'s')+' set (Highlights/Description)':'')+'</div>'+filtersLine+'</div>'+
+    // Round 59: show the explicit title format (when set) right on the
+    // card, in plain words, so Ahmed can see exactly what's being used
+    // without having to open the edit prompt - "so you know exactly what
+    // you're looking at."
+    var titleFormatLine = (cat.titleTemplate && cat.titleTemplate.length) ?
+      '<div class="catmgr-meta" style="margin-top:4px;"><b>Title format:</b> Brand + Part Number + '+cat.titleTemplate.map(function(s){return s.type==='literal'?'"'+esc(s.text)+'"':esc(s.key);}).join(' + ')+'</div>' : '';
+    return '<div class="catmgr-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="catmgr-check" value="'+esc(name)+'"></label><div style="flex:1;"><div><div class="catmgr-name">'+esc(name)+'</div><div class="catmgr-meta">"'+esc(cat.exampleTitle||'')+'" &middot; '+variantCount+' label variant'+(variantCount===1?'':'s')+' folded in'+(otherTemplateCount?' &middot; '+otherTemplateCount+' content template'+(otherTemplateCount===1?'':'s')+' set (Highlights/Description)':'')+'</div>'+filtersLine+titleFormatLine+'</div>'+
       '<div class="catcard-btns" style="margin-top:6px;">'+
         '<button class="catcard-btn" onclick="editCategoryExamplePrompt(\''+escJs(name)+'\')">Edit Title</button>'+
+        '<button class="catcard-btn primary" onclick="editCategoryTitleFormatPrompt(\''+escJs(name)+'\')">'+(cat.titleTemplate&&cat.titleTemplate.length?'Edit Title Format':'Set Title Format')+'</button>'+
         '<button class="catcard-btn" onclick="editCategoryFiltersPrompt(\''+escJs(name)+'\')">Edit Filters</button>'+
         '<button class="catcard-btn" onclick="renameCategoryPrompt(\''+escJs(name)+'\')">Rename</button>'+
         '<button class="catcard-btn" onclick="mergeCategoryPrompt(\''+escJs(name)+'\')">Merge into...</button>'+
         (otherTemplateCount?'<button class="catcard-btn" onclick="clearContentTemplates(\''+escJs(name)+'\')" title="Clear the saved Highlights/Description field-set so the next generated item sets a fresh one">Clear Highlights/Description</button>':'')+
         (cat.exampleTable?'<button class="catcard-btn" onclick="clearCategoryFilters(\''+escJs(name)+'\')" title="Clear the saved Filters/Specs Table field-set">Clear Filters</button>':'')+
+        (cat.titleTemplate&&cat.titleTemplate.length?'<button class="catcard-btn" onclick="clearCategoryTitleFormat(\''+escJs(name)+'\')" title="Stop using the explicit title format and go back to the automatic pattern-matching behavior">Clear Title Format</button>':'')+
         '<button class="catcard-btn" onclick="deleteCategoryPrompt(\''+escJs(name)+'\')">Delete</button>'+
       '</div></div></div>';
   }
@@ -2085,6 +2194,78 @@ function editCategoryExamplePrompt(name){
     });
   }
   cat.exampleTitle = newTitle;
+  saveCategoryLibrary();
+  renderCategoryManager();
+}
+// Round 59 (Ahmed: "brand name, part number, size, material, category,
+// split point... that's how we want to build it, so you know exactly what
+// you're looking at"). Walks Ahmed through building an explicit title
+// format for a category: pick real spec fields (shown from a real current
+// item, with their real values) in whatever order he wants, plus the
+// words that should represent the category itself, and save it as
+// cat.titleTemplate. From then on buildCategoryTitleTemplate() uses this
+// directly - no text-diffing, nothing to silently drift or fall back.
+function editCategoryTitleFormatPrompt(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat) return;
+  var example = findLiveCategoryExample(name);
+  var specs = (example && example.specs) || cat.exampleSpecs || null;
+  var keys = specs ? Object.keys(specs).filter(function(k){return String(specs[k]||'').trim();}) : [];
+  if(!keys.length){
+    alert('No item with real spec data is available for "'+name+'" yet. Load a file with at least one item in this category (or build master records first), then try again.');
+    return;
+  }
+  var listText = keys.map(function(k,i){return (i+1)+'. '+k+': '+specs[k];}).join('\n');
+  var orderStr = prompt(
+    'Build the title format for "'+name+'", step by step.\n\n'+
+    'Every title always starts with Brand + Part Number automatically. Choose what comes after that.\n\n'+
+    'Available fields (from a real current item):\n'+listText+'\n\n'+
+    'Type the numbers in the order you want them to appear, and the letter C wherever the category\'s own name should go (e.g. "Drill Bits"). Separate with commas - example: 1,2,C,3\n\n'+
+    'Leave out any numbers for fields you don\'t want shown in the title.',
+    cat.titleOrderStr||''
+  );
+  if(orderStr===null) return;
+  orderStr = orderStr.trim();
+  if(!orderStr){ alert('Please enter at least one field number or "C".'); return; }
+  var tokens = orderStr.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  var template = [];
+  var badToken = null;
+  tokens.forEach(function(t){
+    if(/^c$/i.test(t)){ template.push({type:'literal',text:''}); return; }
+    if(!/^\d+$/.test(t)){ badToken=t; return; }
+    var idx=parseInt(t,10);
+    if(idx<1||idx>keys.length){ badToken=t; return; }
+    template.push({type:'spec',key:keys[idx-1]});
+  });
+  if(badToken){
+    alert('"'+badToken+'" isn\'t one of the listed field numbers or "C". Please try again using only numbers 1-'+keys.length+' and "C".');
+    return;
+  }
+  if(!template.length){ alert('Nothing to save - pick at least one field number or "C".'); return; }
+  var labelText = prompt('What word(s) should represent "'+name+'" itself in the title? (e.g. "Drill Bits")', cat.titleCategoryLabel||name);
+  if(labelText===null) return;
+  labelText = labelText.trim();
+  if(!labelText){ alert('Category label can\'t be empty.'); return; }
+  template.forEach(function(slot){ if(slot.type==='literal') slot.text=labelText; });
+  cat.titleTemplate = template;
+  cat.titleOrderStr = orderStr;
+  cat.titleCategoryLabel = labelText;
+  saveCategoryLibrary();
+  var previewBrand = (example && example.brand) || cat.exampleBrand || '';
+  var previewPn = (example && example.pn) || cat.exampleItem || '{Part Number}';
+  var tpl = buildExplicitCategoryTemplate(cat,previewBrand);
+  var previewSpecs = Object.assign({},specs,{PART_NUMBER:previewPn});
+  var previewTitle = tpl ? substituteFamilyTokens(tpl.tokenized,tpl.fieldKeys.concat(['PART_NUMBER']),previewSpecs) : '';
+  renderCategoryManager();
+  alert('Saved. Every item in "'+name+'" will now build its title this exact way, for example:\n\n'+previewTitle);
+}
+function clearCategoryTitleFormat(name){
+  var cat = categoryLibrary.categories[name];
+  if(!cat || !cat.titleTemplate) return;
+  if(!confirm('Stop using the explicit title format for "'+name+'" and go back to the automatic pattern-matching behavior?')) return;
+  delete cat.titleTemplate;
+  delete cat.titleOrderStr;
+  delete cat.titleCategoryLabel;
   saveCategoryLibrary();
   renderCategoryManager();
 }
@@ -6539,11 +6720,32 @@ function formatMasterRecordTextTokenized(rec,variantKeys){
   var clone={technical_specs:tokenizedTechnicalSpecs(rec.technical_specs||{},variantKeys||[]),features:rec.features,applications:rec.applications};
   return formatMasterRecordText(clone);
 }
+// Round 59b: an exact key match always wins first (unchanged from every
+// prior round - every existing caller that already uses the item's own
+// real technical_specs keys verbatim keeps working byte-for-byte the
+// same). The fallback only matters for the new Specs-Table-derived title
+// template (below), whose "field names" are attribute LABELS read back
+// out of an already-approved HTML table rather than guaranteed-identical
+// technical_specs key spellings (e.g. the table might say "Point Angle"
+// while a particular item's own record happens to spell it "point angle")
+// - comparing with case/punctuation stripped lets that still resolve
+// instead of silently coming up blank.
+function resolveSpecValueByLabel(specs,label){
+  if(!specs) return '';
+  if(specs[label]!=null) return String(specs[label]);
+  var norm = String(label||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  if(!norm) return '';
+  for(var k in specs){
+    if(specs[k]==null) continue;
+    if(String(k||'').toLowerCase().replace(/[^a-z0-9]+/g,'')===norm) return String(specs[k]);
+  }
+  return '';
+}
 function substituteFamilyTokens(html,variantKeys,specs){
   var out=html;
   (variantKeys||[]).forEach(function(k){
     var token=specKeyToToken(k);
-    var val=(specs&&specs[k]!=null)?String(specs[k]):'';
+    var val=resolveSpecValueByLabel(specs,k);
     out=out.split(token).join(val);
   });
   return out;
