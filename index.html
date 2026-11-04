@@ -1669,8 +1669,27 @@ function continueCategoryReview(){
           // approved before this round, or one whose first snapshot
           // attempt never found a live match) - take this chance to
           // capture one now, since item.exampleRow is guaranteed current.
+          //
+          // Round 58 (Ahmed, real data): this card can now also appear
+          // because the category's template is stale (categoryTemplateCurrentlyUnavailable)
+          // even with NOTHING wrong about the match itself - in that case
+          // item.exampleRow is very likely a COMPLETELY DIFFERENT item than
+          // the one this unchanged title text actually describes (that's
+          // the whole reason it's stale). Capturing a snapshot anyway would
+          // be a dead end worse than doing nothing: it could never pass
+          // buildCategoryTitleTemplate's own prefix check either, but it
+          // WOULD permanently disable the live-lookup self-heal below (once
+          // exampleSpecs is set, that branch never runs again) - so a
+          // category that might have self-healed later (if its real
+          // original example ever reappears in some future file) would
+          // instead be stuck broken forever with no way back. Only trust
+          // this snapshot if the UNCHANGED text actually, literally starts
+          // with THIS row's own Brand+PN - i.e. it genuinely already
+          // describes item.exampleRow, not some other item entirely.
           var snap2=snapshotCategoryExample(item.exampleRow,activeCatReview.brand);
-          if(snap2){ cat2.exampleItem=snap2.exampleItem; cat2.exampleSpecs=snap2.exampleSpecs; cat2.exampleBrand=snap2.exampleBrand; }
+          if(snap2 && cat2.exampleTitle.indexOf(snap2.exampleBrand+' '+snap2.exampleItem)===0){
+            cat2.exampleItem=snap2.exampleItem; cat2.exampleSpecs=snap2.exampleSpecs; cat2.exampleBrand=snap2.exampleBrand;
+          }
         }
       }
       canonicalByKey[item.key] = d.canonicalName;
@@ -2037,6 +2056,33 @@ function editCategoryExamplePrompt(name){
     // finds the example item live in some future file.
     delete cat.exampleSpecs;
     delete cat.exampleBrand;
+    cat.exampleItem = null;
+    // Round 58 (Ahmed, real data: a "Jobber Drills" category approved
+    // before snapshots existed, whose original example item was gone from
+    // every file he had, kept falling back to free-form AI generation
+    // forever - the review-card fix asked him to edit the title here to
+    // describe a CURRENT item, but fixing it that way meant a trip through
+    // Product Name's review flow. This makes "Edit Title" itself capable of
+    // fixing it in one step: if the text Ahmed just typed literally starts
+    // with "{Brand} {PartNumber}" for an item this run already has real
+    // master-record data for, capture that item's own real specs as the
+    // new snapshot right now - so typing a correct title here is enough on
+    // its own to make this category fully deterministic again, with
+    // nothing further required.
+    (masterRecordOrder||[]).some(function(bKey){
+      var rec=masterRecords[bKey];
+      if(!rec||!rec.technical_specs||!Object.keys(rec.technical_specs).length) return false;
+      var row=(fileData||[]).filter(function(r){return baseItemKey(getPN(r))===bKey;})[0];
+      if(!row) return false;
+      var exBrand=getBrand(row,'');
+      var exPn=getPN(row);
+      if(!exBrand||!exPn) return false;
+      if(newTitle.indexOf(exBrand+' '+exPn)!==0) return false;
+      cat.exampleItem=exPn;
+      cat.exampleSpecs=Object.assign({},rec.technical_specs);
+      cat.exampleBrand=exBrand;
+      return true;
+    });
   }
   cat.exampleTitle = newTitle;
   saveCategoryLibrary();
