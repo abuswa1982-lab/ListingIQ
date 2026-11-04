@@ -857,16 +857,24 @@ function scanCategoriesForRun(rows,resolvedBrand){
     var key = m.status+'::'+(m.canonical||m.bestGuess||m.norm);
     var rowBrand = getBrand(rows[i],resolvedBrand);
     var brandMismatch = m.status==='saved' && categoryExampleBrandMismatch(categoryLibrary.categories[m.canonical],rowBrand);
+    // Round 58: a saved category whose deterministic title template can't
+    // currently be built (no persisted snapshot + its original example
+    // item isn't in today's file) needs the same kind of "take a quick
+    // look" flag as a brand mismatch - otherwise it silently falls back to
+    // free-form AI generation with no sign anything's off. See
+    // categoryTemplateCurrentlyUnavailable() above.
+    var templateUnavailable = m.status==='saved' && categoryTemplateCurrentlyUnavailable(categoryLibrary.categories[m.canonical],m.canonical,rowBrand);
     if(!seen[key]){
       seen[key]=true;
-      var needsReview = m.status==='new' || m.status==='possible' || (m.status==='saved' && (reviewAll || brandMismatch));
+      var needsReview = m.status==='new' || m.status==='possible' || (m.status==='saved' && (reviewAll || brandMismatch || templateUnavailable));
       if(needsReview){
         queue.push({
           key:key, status:m.status, rawLabel:m.rawLabel, norm:m.norm,
           canonical:m.canonical, bestGuess:m.bestGuess,
           exampleRow:rows[i], exampleIdx:i,
           suggestedName: m.canonical || suggestCategoryName(m.bestGuess ? m.bestGuess : raw),
-          brandMismatch: brandMismatch, mismatchBrand: brandMismatch?rowBrand:null
+          brandMismatch: brandMismatch, mismatchBrand: brandMismatch?rowBrand:null,
+          templateUnavailable: templateUnavailable
         });
       }
     }
@@ -1005,6 +1013,29 @@ function buildCategoryTitleTemplate(catName,brand){
     saveCategoryLibrary();
   }
   return {tokenized:tokenized, fieldKeys:fieldKeys};
+}
+// Round 58 (Ahmed, real screenshots: an already-approved "Jobber Drills"
+// category, generating J150097 - the title came back "Alfa Tools J150097
+// Super High-Speed Steel Jobber Drills 118 Point", missing the Size and
+// not matching the approved structure at all - the exact bug round 55 was
+// meant to fix. Root cause: this category was approved BEFORE round 55c
+// shipped, so it has no persisted exampleSpecs snapshot, and its original
+// example item (BBN74505) isn't a row in today's file either - so
+// buildCategoryTitleTemplate() correctly, but SILENTLY, returns null and
+// generation quietly falls back to a free-form AI call, which (even with
+// the approved title passed along as a loose style reference) isn't
+// guaranteed to hit every slot. This had no way to ever self-heal on its
+// own: round 55c's snapshot only gets captured when Ahmed reviews/
+// confirms a category, and an already-"saved" category is normally never
+// shown for review again. This detects exactly that silent gap so it can
+// be surfaced to Ahmed as a review card (see scanCategoriesForRun()
+// below) instead of quietly degrading - the SAME "Looks good" confirm
+// button already in that review card is what captures a fresh, portable
+// snapshot (round 55c, unchanged) from one of TODAY's real rows, fixing
+// this category for good with one click.
+function categoryTemplateCurrentlyUnavailable(cat,catName,brand){
+  if(!cat || !cat.exampleItem || !cat.exampleTitle) return false; // never approved with a real example - nothing to go stale
+  return !buildCategoryTitleTemplate(catName,brand);
 }
 // Round 31: Highlights, Description, and the Specs Table had no template
 // mechanism at all - each item's field set (which specs appear, what
@@ -1365,6 +1396,7 @@ function runCategoryReview(scan,channel,brand){
           exampleRow:item.exampleRow, exampleIdx:item.exampleIdx,
           suggestedName:item.suggestedName,
           brandMismatch:item.brandMismatch, mismatchBrand:item.mismatchBrand,
+          templateUnavailable:item.templateUnavailable,
           decision:null, generating:false, generatedTitle:null, genError:null
         };
       }),
@@ -1455,8 +1487,16 @@ function renderCategoryCard(item,idx){
     var mismatchNote = item.brandMismatch
       ? '<div class="catcard-ex" style="color:var(--warn);">Heads up: this saved example starts with a different brand than what\'s actually being used for this run ("'+esc(item.mismatchBrand)+'"). Fix the text below if that\'s a mistake, or leave it and click "Looks good" if it\'s intentional.</div>'
       : '';
+    // Round 58: this is the "stale example, no snapshot, falls back to
+    // free-form AI" gap - see categoryTemplateCurrentlyUnavailable(). The
+    // SAME "Looks good" button below fixes it: confirming re-anchors this
+    // category's deterministic template to THIS item (round 55c), so it
+    // stops happening for every item in this category from here on.
+    var staleTemplateNote = item.templateUnavailable
+      ? '<div class="catcard-ex" style="color:var(--warn);">Heads up: this saved category\'s original example item isn\'t available anymore (a different file, a different day), so titles for it have been falling back to free-form AI generation instead of following your approved pattern exactly - which is very likely why a title in this category looked off. To fix this for good: edit the text below so it describes THIS item (<b>'+esc(exPn)+'</b>) using its own real values, in the same slot pattern shown, then click "Looks good" - that locks in '+esc(exPn)+' as the new reliable example, so every future item in this category builds its title by pure substitution again, with zero AI involved and nothing left to drift. (Clicking "Looks good" without editing the text first will not fix it - the text still has to describe '+esc(exPn)+', not the old example.)</div>'
+      : '';
     body = '<div class="catcard-ex">Category: <b>'+esc(item.canonical)+'</b> &middot; example item '+esc(exPn)+' - already using this saved pattern.</div>'+
-      mismatchNote+
+      mismatchNote+staleTemplateNote+
       '<textarea class="catcard-title-box" id="catcard-box-'+idx+'" rows="2" '+(item.decision?'disabled':'')+'>'+esc(savedBoxVal)+'</textarea>'+
       '<div class="catcard-btns">'+
         '<button class="catcard-btn primary" onclick="decideCategoryCard('+idx+',\'confirm\')" '+(item.decision?'disabled':'')+'>Looks good</button>'+
